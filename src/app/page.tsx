@@ -6,22 +6,28 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { CoreDataConsole } from "../components/core-data-console";
 
 export default function Home() {
   return (
     <main className="flex flex-1 items-center justify-center bg-zinc-50 px-6 font-sans dark:bg-black">
       <Authenticated>
-        <div className="flex w-full max-w-3xl items-center justify-between rounded-xl bg-white p-8 shadow-sm dark:bg-zinc-950">
-          <div>
-            <p className="text-sm font-medium text-zinc-500">AI Service Desk</p>
-            <h1 className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-              Your workspace is ready
-            </h1>
+        <div className="w-full max-w-5xl rounded-xl bg-white p-8 shadow-sm dark:bg-zinc-950">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-500">
+                AI Service Desk
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
+                Your workspace is ready
+              </h1>
+            </div>
+            <div className="flex items-center gap-4">
+              <OrganizationSwitcher />
+              <UserButton />
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <OrganizationSwitcher />
-            <UserButton />
-          </div>
+          <CoreDataConsole />
         </div>
       </Authenticated>
       <Unauthenticated>

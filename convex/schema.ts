@@ -26,4 +26,45 @@ export default defineSchema({
     email: v.optional(v.string()),
   }).index("by_authTokenIdentifier", ["authTokenIdentifier"]),
 
+  customers: defineTable({
+    // Always derived server-side from the authenticated Clerk organization.
+    organizationId: v.id("organizations"),
+    // A single required name supports both people and business customers.
+    name: v.string(),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId", ["organizationId"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+
+  services: defineTable({
+    // Always derived server-side from the authenticated Clerk organization.
+    organizationId: v.id("organizations"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    durationMinutes: v.optional(v.number()),
+    pricing: v.union(
+      v.object({ kind: v.literal("not_specified") }),
+      v.object({
+        kind: v.literal("fixed"),
+        amountMinor: v.number(),
+        currency: v.string(),
+      }),
+      v.object({
+        kind: v.literal("from"),
+        amountMinor: v.number(),
+        currency: v.string(),
+      }),
+    ),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId", ["organizationId"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+
 });
