@@ -67,4 +67,44 @@ export default defineSchema({
     .index("by_organizationId", ["organizationId"])
     .index("by_organizationId_and_status", ["organizationId", "status"]),
 
+  bookings: defineTable({
+    // Always derived server-side from the authenticated Clerk organization.
+    organizationId: v.id("organizations"),
+    customerId: v.id("customers"),
+    serviceId: v.id("services"),
+    // These snapshots preserve booking history when source records change.
+    customerName: v.string(),
+    serviceName: v.string(),
+    servicePricing: v.union(
+      v.object({ kind: v.literal("not_specified") }),
+      v.object({
+        kind: v.literal("fixed"),
+        amountMinor: v.number(),
+        currency: v.string(),
+      }),
+      v.object({
+        kind: v.literal("from"),
+        amountMinor: v.number(),
+        currency: v.string(),
+      }),
+    ),
+    // Absolute Unix timestamps in milliseconds. UI formatting is locale-specific.
+    startTime: v.number(),
+    endTime: v.number(),
+    status: v.union(
+      v.literal("confirmed"),
+      v.literal("cancelled"),
+      v.literal("completed"),
+    ),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_startTime", ["organizationId", "startTime"])
+    .index("by_organizationId_and_status_and_startTime", [
+      "organizationId",
+      "status",
+      "startTime",
+    ]),
+
 });
