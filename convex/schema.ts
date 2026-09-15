@@ -125,4 +125,96 @@ export default defineSchema({
       filterFields: ["organizationId", "status"],
     }),
 
+  conversations: defineTable({
+    // Always derived server-side from the authenticated Clerk organization.
+    organizationId: v.id("organizations"),
+    customerId: v.optional(v.id("customers")),
+    channel: v.union(
+      v.literal("web"),
+      v.literal("sms"),
+      v.literal("phone"),
+      v.literal("email"),
+      v.literal("other"),
+    ),
+    subject: v.optional(v.string()),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    resolvedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
+    .index("by_organizationId_and_status_and_updatedAt", [
+      "organizationId",
+      "status",
+      "updatedAt",
+    ])
+    .index("by_organizationId_and_customerId_and_updatedAt", [
+      "organizationId",
+      "customerId",
+      "updatedAt",
+    ]),
+
+  conversationMessages: defineTable({
+    organizationId: v.id("organizations"),
+    conversationId: v.id("conversations"),
+    senderType: v.union(
+      v.literal("customer"),
+      v.literal("ai"),
+      v.literal("human"),
+      v.literal("system"),
+    ),
+    content: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_conversationId_and_createdAt", [
+    "organizationId",
+    "conversationId",
+    "createdAt",
+  ]),
+
+  conversationEvents: defineTable({
+    organizationId: v.id("organizations"),
+    conversationId: v.id("conversations"),
+    type: v.union(
+      v.literal("conversation_created"),
+      v.literal("customer_linked"),
+      v.literal("case_created"),
+      v.literal("resolved"),
+      v.literal("reopened"),
+    ),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_conversationId_and_createdAt", [
+    "organizationId",
+    "conversationId",
+    "createdAt",
+  ]),
+
+  cases: defineTable({
+    organizationId: v.id("organizations"),
+    conversationId: v.optional(v.id("conversations")),
+    customerId: v.optional(v.id("customers")),
+    title: v.string(),
+    description: v.optional(v.string()),
+    priority: v.union(v.literal("low"), v.literal("normal"), v.literal("high")),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    resolvedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
+    .index("by_organizationId_and_status_and_updatedAt", [
+      "organizationId",
+      "status",
+      "updatedAt",
+    ])
+    .index("by_organizationId_and_customerId_and_updatedAt", [
+      "organizationId",
+      "customerId",
+      "updatedAt",
+    ])
+    .index("by_organizationId_and_conversationId_and_updatedAt", [
+      "organizationId",
+      "conversationId",
+      "updatedAt",
+    ]),
+
 });

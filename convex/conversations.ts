@@ -1,0 +1,286 @@
+import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
+import { requireCurrentTenant } from "./tenant";
+
+const conversationChannel = v.union(
+  v.literal("web"),
+  v.literal("sms"),
+  v.literal("phone"),
+  v.literal("email"),
+  v.literal("other"),
+);
+const conversationStatus = v.union(v.literal("open"), v.literal("resolved"));
+const senderType = v.union(
+  v.literal("customer"),
+  v.literal("ai"),
+  v.literal("human"),
+  v.literal("system"),
+);
+
+function optionalText(
+  value: string | undefined,
+  field: string,
+  maximumLength: number,
+): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim();
+  if (normalized.length === 0) return undefined;
+  if (normalized.length > maximumLength) throw new Error(`${field} is too long`);
+  return normalized;
+}
+
+function requiredText(value: string, field: string, maximumLength: number): string {
+  const normalized = value.trim();
+  if (normalized.length === 0) throw new Error(`${field} is required`);
+  if (normalized.length > maximumLength) throw new Error(`${field} is too long`);
+  return normalized;
+}
+
+export async function getAvailableConversation(
+  ctx: QueryCtx | MutationCtx,
+  conversationId: Id<"conversations">,
+) {
+  const tenant = await requireCurrentTenant(ctx);
+  const conversation = await ctx.db.get(conversationId);
+  if (
+    conversation === null ||
+    conversation.organizationId !== tenant.organization._id
+  ) {
+    return null;
+  }
+  return conversation;
+}
+
+async function getTenantCustomer(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  customerId: Id<"customers">,
+) {
+  const customer = await ctx.db.get(customerId);
+  if (customer === null || customer.organizationId !== organizationId) {
+    throw new Error("Customer is unavailable");
+  }
+  return customer;
+}
+
+function openConversationDocument(
+  conversation: NonNullable<Awaited<ReturnType<typeof getAvailableConversation>>>,
+  updatedAt: number,
+) {
+  return {
+    organizationId: conversation.organizationId,
+    ...(conversation.customerId !== undefined
+      ? { customerId: conversation.customerId }
+      : {}),
+    channel: conversation.channel,
+    ...(conversation.subject !== undefined ? { subject: conversation.subject } : {}),
+    status: "open" as const,
+    createdAt: conversation.createdAt,
+    updatedAt,
+  };
+}
+
+export const list = query({
+  args: { status: v.optional(conversationStatus) },
+  handler: async (ctx, args) => {
+    const tenant = await requireCurrentTenant(ctx);
+    if (args.status !== undefined) {
+      return await ctx.db
+        .query("conversations")
+        .withIndex("by_organizationId_and_status_and_updatedAt", (q) =>
+          q
+            .eq("organizationId", tenant.organization._id)
+            .eq("status", args.status!),
+        )
+        .order("desc")
+        .take(100);
+    }
+    return await ctx.db
+      .query("conversations")
+      .withIndex("by_organizationId_and_updatedAt", (q) =>
+        q.eq("organizationId", tenant.organization._id),
+      )
+      .order("desc")
+      .take(100);
+  },
+});
+
+export const listForCustomer = query({
+  args: { customerId: v.id("customers") },
+  handler: async (ctx, args) => {
+    const tenant = await requireCurrentTenant(ctx);
+    const customer = await ctx.db.get(args.customerId);
+    if (customer === null || customer.organizationId !== tenant.organization._id) {
+      return [];
+    }
+    return await ctx.db
+      .query("conversations")
+      .withIndex("by_organizationId_and_customerId_and_updatedAt", (q) =>
+        q
+          .eq("organizationId", tenant.organization._id)
+          .eq("customerId", args.customerId),
+      )
+      .order("desc")
+      .take(100);
+  },
+});
+
+export const get = query({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) =>
+    await getAvailableConversation(ctx, args.conversationId),
+});
+
+export const create = mutation({
+  args: {
+    customerId: v.optional(v.id("customers")),
+    channel: conversationChannel,
+    subject: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const tenant = await requireCurrentTenant(ctx);
+    if (args.customerId !== undefined) {
+      await getTenantCustomer(ctx, tenant.organization._id, args.customerId);
+    }
+    const subject = optionalText(args.subject, "Subject", 300);
+    const now = Date.now();
+    const conversationId = await ctx.db.insert("conversations", {
+      organizationId: tenant.organization._id,
+      ...(args.customerId !== undefined ? { customerId: args.customerId } : {}),
+      channel: args.channel,
+      ...(subject !== undefined ? { subject } : {}),
+      status: "open",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("conversationEvents", {
+      organizationId: tenant.organization._id,
+      conversationId,
+      type: "conversation_created",
+      createdAt: now,
+    });
+    return conversationId;
+  },
+});
+
+export const linkCustomer = mutation({
+  args: {
+    conversationId: v.id("conversations"),
+    customerId: v.id("customers"),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    if (conversation === null) throw new Error("Conversation is unavailable");
+    await getTenantCustomer(ctx, conversation.organizationId, args.customerId);
+    const now = Date.now();
+    await ctx.db.patch("conversations", conversation._id, {
+      customerId: args.customerId,
+      updatedAt: now,
+    });
+    await ctx.db.insert("conversationEvents", {
+      organizationId: conversation.organizationId,
+      conversationId: conversation._id,
+      type: "customer_linked",
+      createdAt: now,
+    });
+  },
+});
+
+export const resolve = mutation({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    if (conversation === null) throw new Error("Conversation is unavailable");
+    if (conversation.status !== "open") throw new Error("Conversation is not open");
+    const now = Date.now();
+    await ctx.db.patch("conversations", conversation._id, {
+      status: "resolved",
+      resolvedAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("conversationEvents", {
+      organizationId: conversation.organizationId,
+      conversationId: conversation._id,
+      type: "resolved",
+      createdAt: now,
+    });
+  },
+});
+
+export const reopen = mutation({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    if (conversation === null) throw new Error("Conversation is unavailable");
+    if (conversation.status !== "resolved") throw new Error("Conversation is not resolved");
+    const now = Date.now();
+    await ctx.db.replace(
+      "conversations",
+      conversation._id,
+      openConversationDocument(conversation, now),
+    );
+    await ctx.db.insert("conversationEvents", {
+      organizationId: conversation.organizationId,
+      conversationId: conversation._id,
+      type: "reopened",
+      createdAt: now,
+    });
+  },
+});
+
+export const listMessages = query({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    if (conversation === null) return [];
+    return await ctx.db
+      .query("conversationMessages")
+      .withIndex("by_organizationId_and_conversationId_and_createdAt", (q) =>
+        q
+          .eq("organizationId", conversation.organizationId)
+          .eq("conversationId", conversation._id),
+      )
+      .order("asc")
+      .take(500);
+  },
+});
+
+export const appendMessage = mutation({
+  args: {
+    conversationId: v.id("conversations"),
+    senderType,
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    if (conversation === null) throw new Error("Conversation is unavailable");
+    const now = Date.now();
+    await ctx.db.insert("conversationMessages", {
+      organizationId: conversation.organizationId,
+      conversationId: conversation._id,
+      senderType: args.senderType,
+      content: requiredText(args.content, "Message content", 20_000),
+      createdAt: now,
+    });
+    await ctx.db.patch("conversations", conversation._id, { updatedAt: now });
+  },
+});
+
+export const listEvents = query({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    if (conversation === null) return [];
+    return await ctx.db
+      .query("conversationEvents")
+      .withIndex("by_organizationId_and_conversationId_and_createdAt", (q) =>
+        q
+          .eq("organizationId", conversation.organizationId)
+          .eq("conversationId", conversation._id),
+      )
+      .order("asc")
+      .take(500);
+  },
+});
