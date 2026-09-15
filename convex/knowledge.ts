@@ -38,6 +38,47 @@ function searchLimit(value: number | undefined): number {
   return value;
 }
 
+export type KnowledgeSearchResult = {
+  knowledgeId: Id<"knowledgeEntries">;
+  title: string;
+  content: string;
+  updatedAt: number;
+};
+
+/** Shared active, tenant-scoped retrieval for app queries and approved tools. */
+export async function searchActiveKnowledge(
+  ctx: QueryCtx,
+  args: { query: string; limit?: number },
+): Promise<Array<KnowledgeSearchResult>> {
+  const tenant = await requireCurrentTenant(ctx);
+  const searchQuery = args.query.trim();
+
+  if (searchQuery.length === 0) {
+    return [];
+  }
+
+  if (searchQuery.length > 200) {
+    throw new Error("Search query is too long");
+  }
+
+  const entries = await ctx.db
+    .query("knowledgeEntries")
+    .withSearchIndex("search_by_searchText_and_organizationId_and_status", (q) =>
+      q
+        .search("searchText", searchQuery)
+        .eq("organizationId", tenant.organization._id)
+        .eq("status", "active"),
+    )
+    .take(searchLimit(args.limit));
+
+  return entries.map((entry) => ({
+    knowledgeId: entry._id,
+    title: entry.title,
+    content: entry.content,
+    updatedAt: entry.updatedAt,
+  }));
+}
+
 async function getAvailableKnowledge(
   ctx: QueryCtx | MutationCtx,
   knowledgeId: Id<"knowledgeEntries">,
@@ -170,33 +211,5 @@ export const search = query({
     query: v.string(),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const tenant = await requireCurrentTenant(ctx);
-    const searchQuery = args.query.trim();
-
-    if (searchQuery.length === 0) {
-      return [];
-    }
-
-    if (searchQuery.length > 200) {
-      throw new Error("Search query is too long");
-    }
-
-    const entries = await ctx.db
-      .query("knowledgeEntries")
-      .withSearchIndex("search_by_searchText_and_organizationId_and_status", (q) =>
-        q
-          .search("searchText", searchQuery)
-          .eq("organizationId", tenant.organization._id)
-          .eq("status", "active"),
-      )
-      .take(searchLimit(args.limit));
-
-    return entries.map((entry) => ({
-      knowledgeId: entry._id,
-      title: entry.title,
-      content: entry.content,
-      updatedAt: entry.updatedAt,
-    }));
-  },
+  handler: async (ctx, args) => await searchActiveKnowledge(ctx, args),
 });

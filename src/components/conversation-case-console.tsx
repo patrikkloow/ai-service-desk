@@ -317,7 +317,14 @@ export function ConversationCaseConsole() {
                 <button className="text-sm underline" type="submit">Create case</button>
               </form>
               <ul className="space-y-1 text-xs text-zinc-500">
-                {events?.map((event) => <li key={event._id}>{event.type}</li>)}
+                {events?.map((event) => (
+                  <li key={event._id}>
+                    {event.type}
+                    {event.entityType !== undefined && event.entityId !== undefined
+                      ? ` · ${event.entityType} ${event.entityId}`
+                      : ""}
+                  </li>
+                ))}
               </ul>
             </div>
           )}

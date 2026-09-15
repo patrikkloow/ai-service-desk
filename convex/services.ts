@@ -103,12 +103,29 @@ async function getAvailableService(
   return service;
 }
 
+/** Shared active-service retrieval for app queries and approved tools. */
+export async function listActiveTenantServices(ctx: QueryCtx) {
+  const tenant = await requireCurrentTenant(ctx);
+  return await ctx.db
+    .query("services")
+    .withIndex("by_organizationId_and_status", (q) =>
+      q
+        .eq("organizationId", tenant.organization._id)
+        .eq("status", "active"),
+    )
+    .order("desc")
+    .take(100);
+}
+
 export const list = query({
   args: { status: v.optional(serviceStatus) },
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenant(ctx);
 
     if (args.status !== undefined) {
+      if (args.status === "active") {
+        return await listActiveTenantServices(ctx);
+      }
       return await ctx.db
         .query("services")
         .withIndex("by_organizationId_and_status", (q) =>

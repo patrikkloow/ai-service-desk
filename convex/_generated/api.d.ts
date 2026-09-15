@@ -17,6 +17,7 @@ import type * as knowledge from "../knowledge.js";
 import type * as services from "../services.js";
 import type * as tenant from "../tenant.js";
 import type * as tenants from "../tenants.js";
+import type * as tools from "../tools.js";
 
 import type {
   ApiFromModules,
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   services: typeof services;
   tenant: typeof tenant;
   tenants: typeof tenants;
+  tools: typeof tools;
 }>;
 
 /**

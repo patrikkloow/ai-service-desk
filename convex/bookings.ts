@@ -11,6 +11,14 @@ const bookingStatus = v.union(
   v.literal("completed"),
 );
 
+export type CreateTenantBookingArgs = {
+  customerId: Id<"customers">;
+  serviceId: Id<"services">;
+  startTime: number;
+  endTime: number;
+  notes?: string;
+};
+
 function optionalNotes(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const notes = value.trim();
@@ -19,7 +27,7 @@ function optionalNotes(value: string | undefined): string | undefined {
   return notes;
 }
 
-async function getAvailableBooking(
+export async function getAvailableBooking(
   ctx: QueryCtx | MutationCtx,
   bookingId: Id<"bookings">,
 ) {
@@ -47,6 +55,94 @@ async function getBookableRecords(
   }
   if (service.status !== "active") throw new Error("Service is inactive");
   return { customer, service };
+}
+
+/**
+ * The authoritative booking creation operation used by both the ordinary
+ * application mutation and the approved tool layer. Keeping validation and
+ * availability checks here prevents adapters from bypassing booking rules.
+ */
+export async function createTenantBooking(
+  ctx: MutationCtx,
+  args: CreateTenantBookingArgs,
+) {
+  validateBookingInterval(args.startTime, args.endTime);
+  const tenant = await requireCurrentTenant(ctx);
+  const { customer, service } = await getBookableRecords(
+    ctx,
+    tenant.organization._id,
+    args.customerId,
+    args.serviceId,
+  );
+  const blockingBooking = await findBlockingBooking(
+    ctx,
+    tenant.organization._id,
+    args.startTime,
+    args.endTime,
+  );
+  if (blockingBooking !== null) throw new Error("The requested time is unavailable");
+  const now = Date.now();
+  const notes = optionalNotes(args.notes);
+  return await ctx.db.insert("bookings", {
+    organizationId: tenant.organization._id,
+    customerId: customer._id,
+    serviceId: service._id,
+    customerName: customer.name,
+    serviceName: service.name,
+    servicePricing: service.pricing,
+    startTime: args.startTime,
+    endTime: args.endTime,
+    ...(notes !== undefined ? { notes } : {}),
+    status: "confirmed",
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+export async function rescheduleTenantBooking(
+  ctx: MutationCtx,
+  args: {
+    bookingId: Id<"bookings">;
+    startTime: number;
+    endTime: number;
+  },
+) {
+  validateBookingInterval(args.startTime, args.endTime);
+  const booking = await getAvailableBooking(ctx, args.bookingId);
+  if (booking === null) throw new Error("Booking is unavailable");
+  if (booking.status !== "confirmed") {
+    throw new Error("Only confirmed bookings can be rescheduled");
+  }
+  const blockingBooking = await findBlockingBooking(
+    ctx,
+    booking.organizationId,
+    args.startTime,
+    args.endTime,
+    booking._id,
+  );
+  if (blockingBooking !== null) throw new Error("The requested time is unavailable");
+  await ctx.db.patch("bookings", booking._id, {
+    startTime: args.startTime,
+    endTime: args.endTime,
+    updatedAt: Date.now(),
+  });
+  return booking._id;
+}
+
+export async function cancelTenantBooking(
+  ctx: MutationCtx,
+  bookingId: Id<"bookings">,
+) {
+  const booking = await getAvailableBooking(ctx, bookingId);
+  if (booking === null) throw new Error("Booking is unavailable");
+  if (booking.status !== "confirmed") {
+    throw new Error("Only confirmed bookings can be cancelled");
+  }
+  await ctx.db.patch("bookings", booking._id, {
+    status: "cancelled",
+    updatedAt: Date.now(),
+  });
+  return booking._id;
 }
 
 export const list = query({
@@ -87,66 +183,17 @@ export const create = mutation({
     endTime: v.number(),
     notes: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    validateBookingInterval(args.startTime, args.endTime);
-    const tenant = await requireCurrentTenant(ctx);
-    const { customer, service } = await getBookableRecords(
-      ctx,
-      tenant.organization._id,
-      args.customerId,
-      args.serviceId,
-    );
-    const blockingBooking = await findBlockingBooking(
-      ctx,
-      tenant.organization._id,
-      args.startTime,
-      args.endTime,
-    );
-    if (blockingBooking !== null) throw new Error("The requested time is unavailable");
-    const now = Date.now();
-    const notes = optionalNotes(args.notes);
-    return await ctx.db.insert("bookings", {
-      organizationId: tenant.organization._id,
-      customerId: customer._id,
-      serviceId: service._id,
-      customerName: customer.name,
-      serviceName: service.name,
-      servicePricing: service.pricing,
-      startTime: args.startTime,
-      endTime: args.endTime,
-      ...(notes !== undefined ? { notes } : {}),
-      status: "confirmed",
-      createdAt: now,
-      updatedAt: now,
-    });
-  },
+  handler: async (ctx, args) => await createTenantBooking(ctx, args),
 });
 
 export const reschedule = mutation({
   args: { bookingId: v.id("bookings"), startTime: v.number(), endTime: v.number() },
-  handler: async (ctx, args) => {
-    validateBookingInterval(args.startTime, args.endTime);
-    const booking = await getAvailableBooking(ctx, args.bookingId);
-    if (booking === null) throw new Error("Booking is unavailable");
-    if (booking.status !== "confirmed") throw new Error("Only confirmed bookings can be rescheduled");
-    const blockingBooking = await findBlockingBooking(
-      ctx, booking.organizationId, args.startTime, args.endTime, booking._id,
-    );
-    if (blockingBooking !== null) throw new Error("The requested time is unavailable");
-    await ctx.db.patch("bookings", booking._id, {
-      startTime: args.startTime, endTime: args.endTime, updatedAt: Date.now(),
-    });
-  },
+  handler: async (ctx, args) => await rescheduleTenantBooking(ctx, args),
 });
 
 export const cancel = mutation({
   args: { bookingId: v.id("bookings") },
-  handler: async (ctx, args) => {
-    const booking = await getAvailableBooking(ctx, args.bookingId);
-    if (booking === null) throw new Error("Booking is unavailable");
-    if (booking.status !== "confirmed") throw new Error("Only confirmed bookings can be cancelled");
-    await ctx.db.patch("bookings", booking._id, { status: "cancelled", updatedAt: Date.now() });
-  },
+  handler: async (ctx, args) => await cancelTenantBooking(ctx, args.bookingId),
 });
 
 export const complete = mutation({

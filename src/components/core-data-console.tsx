@@ -8,6 +8,7 @@ import { BookingConsole } from "./booking-console";
 import { ConversationCaseConsole } from "./conversation-case-console";
 import { KnowledgeConsole } from "./knowledge-console";
 import { useTenantProvisioning } from "./tenant-bootstrap";
+import { ToolConsole } from "./tool-console";
 
 type PriceKind = "not_specified" | "fixed" | "from";
 
@@ -341,6 +342,7 @@ export function CoreDataConsole() {
       <BookingConsole />
       <KnowledgeConsole />
       <ConversationCaseConsole />
+      <ToolConsole />
     </div>
   );
 }

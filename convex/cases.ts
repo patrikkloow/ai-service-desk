@@ -2,7 +2,11 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { getAvailableConversation } from "./conversations";
+import {
+  getAvailableConversation,
+  recordConversationActivity,
+  type ConversationActivityType,
+} from "./conversations";
 import { requireCurrentTenant } from "./tenant";
 
 const caseStatus = v.union(v.literal("open"), v.literal("resolved"));
@@ -11,6 +15,19 @@ const casePriority = v.union(
   v.literal("normal"),
   v.literal("high"),
 );
+
+export type CasePriority = "low" | "normal" | "high";
+type CaseSource = "human_escalation";
+
+export type CreateTenantCaseArgs = {
+  conversationId?: Id<"conversations">;
+  customerId?: Id<"customers">;
+  title: string;
+  description?: string;
+  priority?: CasePriority;
+  source?: CaseSource;
+  conversationActivityType?: ConversationActivityType;
+};
 
 function requiredText(value: string, field: string, maximumLength: number): string {
   const normalized = value.trim();
@@ -71,11 +88,83 @@ function openCaseDocument(
     ...(caseRecord.description !== undefined
       ? { description: caseRecord.description }
       : {}),
+    ...(caseRecord.source !== undefined ? { source: caseRecord.source } : {}),
     priority: caseRecord.priority,
     status: "open" as const,
     createdAt: caseRecord.createdAt,
     updatedAt,
   };
+}
+
+/**
+ * The authoritative case creation operation used by both the public case
+ * mutation and approved tools. It verifies every linked resource before any
+ * write and records only safe conversation provenance.
+ */
+export async function createTenantCase(
+  ctx: MutationCtx,
+  args: CreateTenantCaseArgs,
+) {
+  const tenant = await requireCurrentTenant(ctx);
+  const conversation =
+    args.conversationId === undefined
+      ? null
+      : await getAvailableConversation(ctx, args.conversationId);
+  if (args.conversationId !== undefined && conversation === null) {
+    throw new Error("Conversation is unavailable");
+  }
+  if (args.customerId !== undefined) {
+    await getTenantCustomer(ctx, tenant.organization._id, args.customerId);
+  }
+  if (
+    conversation?.customerId !== undefined &&
+    args.customerId !== undefined &&
+    conversation.customerId !== args.customerId
+  ) {
+    throw new Error("Case customer must match the linked conversation");
+  }
+
+  const customerId = args.customerId ?? conversation?.customerId;
+  const description = optionalText(args.description, "Description", 20_000);
+  const now = Date.now();
+  const caseId = await ctx.db.insert("cases", {
+    organizationId: tenant.organization._id,
+    ...(conversation !== null ? { conversationId: conversation._id } : {}),
+    ...(customerId !== undefined ? { customerId } : {}),
+    title: requiredText(args.title, "Title", 300),
+    ...(description !== undefined ? { description } : {}),
+    ...(args.source !== undefined ? { source: args.source } : {}),
+    priority: args.priority ?? "normal",
+    status: "open",
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (conversation !== null) {
+    await recordConversationActivity(
+      ctx,
+      conversation,
+      args.conversationActivityType ?? "case_created",
+      { entityType: "case", entityId: caseId },
+    );
+  }
+  return caseId;
+}
+
+export async function getOpenHumanEscalationCase(
+  ctx: MutationCtx,
+  conversationId: Id<"conversations">,
+  organizationId: Id<"organizations">,
+) {
+  return await ctx.db
+    .query("cases")
+    .withIndex("by_organizationId_and_conversationId_and_source_and_status", (q) =>
+      q
+        .eq("organizationId", organizationId)
+        .eq("conversationId", conversationId)
+        .eq("source", "human_escalation")
+        .eq("status", "open"),
+    )
+    .unique();
 }
 
 export const list = query({
@@ -153,50 +242,7 @@ export const create = mutation({
     description: v.optional(v.string()),
     priority: v.optional(casePriority),
   },
-  handler: async (ctx, args) => {
-    const tenant = await requireCurrentTenant(ctx);
-    const conversation =
-      args.conversationId === undefined
-        ? null
-        : await getAvailableConversation(ctx, args.conversationId);
-    if (args.conversationId !== undefined && conversation === null) {
-      throw new Error("Conversation is unavailable");
-    }
-    if (args.customerId !== undefined) {
-      await getTenantCustomer(ctx, tenant.organization._id, args.customerId);
-    }
-    if (
-      conversation?.customerId !== undefined &&
-      args.customerId !== undefined &&
-      conversation.customerId !== args.customerId
-    ) {
-      throw new Error("Case customer must match the linked conversation");
-    }
-
-    const customerId = args.customerId ?? conversation?.customerId;
-    const description = optionalText(args.description, "Description", 20_000);
-    const now = Date.now();
-    const caseId = await ctx.db.insert("cases", {
-      organizationId: tenant.organization._id,
-      ...(conversation !== null ? { conversationId: conversation._id } : {}),
-      ...(customerId !== undefined ? { customerId } : {}),
-      title: requiredText(args.title, "Title", 300),
-      ...(description !== undefined ? { description } : {}),
-      priority: args.priority ?? "normal",
-      status: "open",
-      createdAt: now,
-      updatedAt: now,
-    });
-    if (conversation !== null) {
-      await ctx.db.insert("conversationEvents", {
-        organizationId: tenant.organization._id,
-        conversationId: conversation._id,
-        type: "case_created",
-        createdAt: now,
-      });
-    }
-    return caseId;
-  },
+  handler: async (ctx, args) => await createTenantCase(ctx, args),
 });
 
 export const update = mutation({
@@ -233,6 +279,7 @@ export const update = mutation({
           ? caseRecord.title
           : requiredText(args.title, "Title", 300),
       ...(description !== undefined ? { description } : {}),
+      ...(caseRecord.source !== undefined ? { source: caseRecord.source } : {}),
       priority: args.priority ?? caseRecord.priority,
       status: caseRecord.status,
       ...(caseRecord.resolvedAt !== undefined

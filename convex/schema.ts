@@ -39,7 +39,22 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_organizationId", ["organizationId"])
-    .index("by_organizationId_and_status", ["organizationId", "status"]),
+    .index("by_organizationId_and_status", ["organizationId", "status"])
+    .index("by_organizationId_and_name_and_status", [
+      "organizationId",
+      "name",
+      "status",
+    ])
+    .index("by_organizationId_and_email_and_status", [
+      "organizationId",
+      "email",
+      "status",
+    ])
+    .index("by_organizationId_and_phone_and_status", [
+      "organizationId",
+      "phone",
+      "status",
+    ]),
 
   services: defineTable({
     // Always derived server-side from the authenticated Clerk organization.
@@ -178,9 +193,18 @@ export default defineSchema({
       v.literal("conversation_created"),
       v.literal("customer_linked"),
       v.literal("case_created"),
+      v.literal("booking_created"),
+      v.literal("booking_rescheduled"),
+      v.literal("booking_cancelled"),
+      v.literal("human_escalated"),
       v.literal("resolved"),
       v.literal("reopened"),
     ),
+    // Provenance is intentionally limited to a safe entity reference. Tool
+    // inputs, prompts, customer contact data, and message content are never
+    // stored in the activity timeline.
+    entityType: v.optional(v.union(v.literal("booking"), v.literal("case"))),
+    entityId: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_organizationId_and_conversationId_and_createdAt", [
     "organizationId",
@@ -194,6 +218,9 @@ export default defineSchema({
     customerId: v.optional(v.id("customers")),
     title: v.string(),
     description: v.optional(v.string()),
+    // Only set by the human escalation tool. This supports retry-safe
+    // escalation without making ordinary cases tool-specific.
+    source: v.optional(v.literal("human_escalation")),
     priority: v.union(v.literal("low"), v.literal("normal"), v.literal("high")),
     status: v.union(v.literal("open"), v.literal("resolved")),
     resolvedAt: v.optional(v.number()),
@@ -215,6 +242,12 @@ export default defineSchema({
       "organizationId",
       "conversationId",
       "updatedAt",
+    ])
+    .index("by_organizationId_and_conversationId_and_source_and_status", [
+      "organizationId",
+      "conversationId",
+      "source",
+      "status",
     ]),
 
 });

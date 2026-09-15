@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireCurrentTenant } from "./tenant";
@@ -18,6 +18,18 @@ const senderType = v.union(
   v.literal("human"),
   v.literal("system"),
 );
+
+export type ConversationActivityType =
+  | "booking_created"
+  | "booking_rescheduled"
+  | "booking_cancelled"
+  | "case_created"
+  | "human_escalated";
+
+type ConversationActivityEntity = {
+  entityType: "booking" | "case";
+  entityId: Id<"bookings"> | Id<"cases">;
+};
 
 function optionalText(
   value: string | undefined,
@@ -63,6 +75,27 @@ async function getTenantCustomer(
     throw new Error("Customer is unavailable");
   }
   return customer;
+}
+
+/**
+ * Adds a minimal, tenant-scoped provenance record for a domain action that
+ * originated from a conversation. Deliberately excludes tool arguments and
+ * customer data so the timeline stays safe to expose in future dashboards.
+ */
+export async function recordConversationActivity(
+  ctx: MutationCtx,
+  conversation: Doc<"conversations">,
+  type: ConversationActivityType,
+  entity: ConversationActivityEntity,
+) {
+  await ctx.db.insert("conversationEvents", {
+    organizationId: conversation.organizationId,
+    conversationId: conversation._id,
+    type,
+    entityType: entity.entityType,
+    entityId: entity.entityId,
+    createdAt: Date.now(),
+  });
 }
 
 function openConversationDocument(
