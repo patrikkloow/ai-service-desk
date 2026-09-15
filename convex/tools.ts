@@ -19,6 +19,7 @@ import {
 import { searchActiveKnowledge } from "./knowledge";
 import { listActiveTenantServices } from "./services";
 import { requireCurrentTenant } from "./tenant";
+import { APPROVED_TOOL_DEFINITIONS } from "./toolRegistry";
 
 const customerFindBy = v.union(
   v.literal("email"),
@@ -94,72 +95,6 @@ const writeToolRequest = v.union(
     args: v.object({ conversationId: v.id("conversations"), reason: v.string() }),
   }),
 );
-
-const TOOL_DEFINITIONS = [
-  {
-    name: "knowledge.search",
-    kind: "read",
-    description: "Search active tenant knowledge sources.",
-    input: "query, optional limit",
-    output: "knowledge sources",
-  },
-  {
-    name: "customer.find",
-    kind: "read",
-    description: "Find active customers by one exact identifier.",
-    input: "by, value, optional limit",
-    output: "minimal customer matches",
-  },
-  {
-    name: "service.list",
-    kind: "read",
-    description: "List active tenant services and structured pricing.",
-    input: "none",
-    output: "services",
-  },
-  {
-    name: "availability.check",
-    kind: "read",
-    description: "Check whether a time interval is bookable.",
-    input: "startTime, endTime",
-    output: "availability status",
-  },
-  {
-    name: "booking.create",
-    kind: "write",
-    description: "Create a confirmed booking through the booking domain rules.",
-    input: "customerId, serviceId, startTime, endTime, optional notes and conversationId",
-    output: "booking reference and status",
-  },
-  {
-    name: "booking.reschedule",
-    kind: "write",
-    description: "Reschedule a confirmed booking through the booking domain rules.",
-    input: "bookingId, startTime, endTime, optional conversationId",
-    output: "booking reference and status",
-  },
-  {
-    name: "booking.cancel",
-    kind: "write",
-    description: "Cancel a confirmed booking through the booking domain rules.",
-    input: "bookingId, optional conversationId",
-    output: "booking reference and status",
-  },
-  {
-    name: "case.create",
-    kind: "write",
-    description: "Create a tenant-scoped case with optional customer or conversation context.",
-    input: "title, optional description, priority, customerId, conversationId",
-    output: "case reference and status",
-  },
-  {
-    name: "human.escalate",
-    kind: "write",
-    description: "Mark a conversation for human follow-up without resolving it.",
-    input: "conversationId, reason",
-    output: "escalation case reference and whether it was created",
-  },
-] as const;
 
 type ToolErrorCode =
   | "unauthorized"
@@ -314,7 +249,7 @@ export const listDefinitions = query({
   args: {},
   handler: async (ctx) => {
     await requireCurrentTenant(ctx);
-    return TOOL_DEFINITIONS.map((definition) => ({ ...definition }));
+    return APPROVED_TOOL_DEFINITIONS.map((definition) => ({ ...definition }));
   },
 });
 

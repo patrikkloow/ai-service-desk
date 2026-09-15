@@ -7,7 +7,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { useTenantProvisioning } from "./tenant-bootstrap";
 
 type Channel = "web" | "sms" | "phone" | "email" | "other";
-type SenderType = "customer" | "ai" | "human" | "system";
+type SenderType = "customer" | "human";
 type Priority = "low" | "normal" | "high";
 
 function errorMessage(error: unknown): string {
@@ -279,8 +279,6 @@ export function ConversationCaseConsole() {
                 >
                   <option value="customer">Customer</option>
                   <option value="human">Human</option>
-                  <option value="ai">AI</option>
-                  <option value="system">System</option>
                 </select>
                 <textarea
                   className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"

@@ -14,9 +14,14 @@ import type * as cases from "../cases.js";
 import type * as conversations from "../conversations.js";
 import type * as customers from "../customers.js";
 import type * as knowledge from "../knowledge.js";
+import type * as modelAdapter from "../modelAdapter.js";
+import type * as orchestrator from "../orchestrator.js";
+import type * as orchestratorCore from "../orchestratorCore.js";
+import type * as orchestratorInternal from "../orchestratorInternal.js";
 import type * as services from "../services.js";
 import type * as tenant from "../tenant.js";
 import type * as tenants from "../tenants.js";
+import type * as toolRegistry from "../toolRegistry.js";
 import type * as tools from "../tools.js";
 
 import type {
@@ -32,9 +37,14 @@ declare const fullApi: ApiFromModules<{
   conversations: typeof conversations;
   customers: typeof customers;
   knowledge: typeof knowledge;
+  modelAdapter: typeof modelAdapter;
+  orchestrator: typeof orchestrator;
+  orchestratorCore: typeof orchestratorCore;
+  orchestratorInternal: typeof orchestratorInternal;
   services: typeof services;
   tenant: typeof tenant;
   tenants: typeof tenants;
+  toolRegistry: typeof toolRegistry;
   tools: typeof tools;
 }>;
 

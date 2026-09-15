@@ -12,12 +12,7 @@ const conversationChannel = v.union(
   v.literal("other"),
 );
 const conversationStatus = v.union(v.literal("open"), v.literal("resolved"));
-const senderType = v.union(
-  v.literal("customer"),
-  v.literal("ai"),
-  v.literal("human"),
-  v.literal("system"),
-);
+const clientSenderType = v.union(v.literal("customer"), v.literal("human"));
 
 export type ConversationActivityType =
   | "booking_created"
@@ -96,6 +91,24 @@ export async function recordConversationActivity(
     entityId: entity.entityId,
     createdAt: Date.now(),
   });
+}
+
+/** Shared append operation; AI/system messages are only written by server code. */
+export async function appendConversationMessage(
+  ctx: MutationCtx,
+  conversation: Doc<"conversations">,
+  sender: "customer" | "ai" | "human" | "system",
+  content: string,
+) {
+  const now = Date.now();
+  await ctx.db.insert("conversationMessages", {
+    organizationId: conversation.organizationId,
+    conversationId: conversation._id,
+    senderType: sender,
+    content: requiredText(content, "Message content", 20_000),
+    createdAt: now,
+  });
+  await ctx.db.patch("conversations", conversation._id, { updatedAt: now });
 }
 
 function openConversationDocument(
@@ -283,21 +296,13 @@ export const listMessages = query({
 export const appendMessage = mutation({
   args: {
     conversationId: v.id("conversations"),
-    senderType,
+    senderType: clientSenderType,
     content: v.string(),
   },
   handler: async (ctx, args) => {
     const conversation = await getAvailableConversation(ctx, args.conversationId);
     if (conversation === null) throw new Error("Conversation is unavailable");
-    const now = Date.now();
-    await ctx.db.insert("conversationMessages", {
-      organizationId: conversation.organizationId,
-      conversationId: conversation._id,
-      senderType: args.senderType,
-      content: requiredText(args.content, "Message content", 20_000),
-      createdAt: now,
-    });
-    await ctx.db.patch("conversations", conversation._id, { updatedAt: now });
+    await appendConversationMessage(ctx, conversation, args.senderType, args.content);
   },
 });
 
