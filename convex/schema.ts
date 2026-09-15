@@ -107,4 +107,22 @@ export default defineSchema({
       "startTime",
     ]),
 
+  knowledgeEntries: defineTable({
+    // Always derived server-side from the authenticated Clerk organization.
+    organizationId: v.id("organizations"),
+    title: v.string(),
+    content: v.string(),
+    // Maintained server-side as a search projection of title and content.
+    searchText: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId", ["organizationId"])
+    .index("by_organizationId_and_status", ["organizationId", "status"])
+    .searchIndex("search_by_searchText_and_organizationId_and_status", {
+      searchField: "searchText",
+      filterFields: ["organizationId", "status"],
+    }),
+
 });

@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { BookingConsole } from "./booking-console";
+import { KnowledgeConsole } from "./knowledge-console";
 import { useTenantProvisioning } from "./tenant-bootstrap";
 
 type PriceKind = "not_specified" | "fixed" | "from";
@@ -337,6 +338,7 @@ export function CoreDataConsole() {
       </section>
 
       <BookingConsole />
+      <KnowledgeConsole />
     </div>
   );
 }
