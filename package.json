@@ -7,10 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "voice:spike:server": "tsx scripts/voice-spike-server.ts",
+    "voice:spike:create-engine": "tsx scripts/voice-spike-create-engine.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.2",
+    "@elevenlabs/elevenlabs-js": "^2.68.0",
+    "@elevenlabs/react": "^1.15.2",
     "convex": "^1.45.0",
     "next": "16.3.5",
     "react": "19.2.8",
@@ -26,6 +30,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5",
     "vitest": "^3.2.7"
   }
