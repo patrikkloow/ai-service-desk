@@ -37,6 +37,11 @@ vi.mock("convex/react", () => ({
  }
 }));
 beforeEach(() => {
+ vi.stubGlobal("matchMedia", vi.fn(() => ({
+  matches: false,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+ })));
  mock.orgId = "org-a";
  mock.ready = true;
  mock.ownership = "unassigned";
@@ -66,7 +71,7 @@ describe("operator request flows", () => {
  });
  it("starts manual editing collapsed and acknowledges through the existing API", async () => {
   render(<Inbox initialSelected="request-1" />);
-  expect(screen.getByText("Redigera förfrågan").closest("details")?.open).toBe(false);
+  expect(screen.getByRole("button", {name: "Redigera förfrågan"}).getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByText("Överlämningsunderlag")).toBeNull();
   fireEvent.click(screen.getByRole("button", {name: "Jag tar hand om detta"}));
   await waitFor(() => expect(mock.attentionMutation).toHaveBeenCalledWith({target: "request-1", action: "acknowledge"}));

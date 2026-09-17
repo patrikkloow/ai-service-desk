@@ -1,6 +1,13 @@
 "use client";
 
-import { Component, type ReactNode, useState, useEffect, useRef } from "react";
+import {
+  Component,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
@@ -13,6 +20,32 @@ import { Badge as StatusBadge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const desktopQuery = "(min-width: 1024px)";
+function subscribeDesktop(callback: () => void) {
+  const media = window.matchMedia(desktopQuery);
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
+const requestFilters = [
+  ["all", "Alla"],
+  ["active", "Pågående"],
+  ["scheduled", "Bokade"],
+  ["completed", "Klart"],
+] as const;
 
 type Target = Id<"serviceRequests"> | Id<"cases">;
 const actions = {
@@ -81,20 +114,42 @@ export function Inbox({ requestsOnly = false, initialSelected = null }: { reques
   );
 }
 function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean; initialSelected: string | null }) {
-  const [view, setView] = useState<"attention" | "all">(requestsOnly ? "all" : "attention");
+  const view = requestsOnly ? "all" : "attention";
+  const [filter, setFilter] = useState("all");
+  const desktop = useSyncExternalStore(
+    subscribeDesktop,
+    () => window.matchMedia(desktopQuery).matches,
+    () => false,
+  );
   const [creating, setCreating] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const focusAfterClose = useRef<Target | null>(null);
   const data = useQuery(api.inbox.list, { view });
-  const rows = data?.items.filter(row => !requestsOnly || row.kind === "request");
-  const selected = rows?.find((row) => row.id === initialSelected)?.id ?? null;
+  const rows = data?.items.filter((row) =>
+    requestsOnly
+      ? row.kind === "request" &&
+        (filter === "all" ||
+          (filter === "active"
+            ? row.status === "new" || row.status === "active"
+            : row.status === filter))
+      : row.attention === "requested" || row.attention === "acknowledged",
+  );
+  const explicitSelected =
+    rows?.find((row) => row.id === initialSelected)?.id ?? null;
+  const selected =
+    explicitSelected ??
+    (desktop && initialSelected === null ? rows?.[0]?.id ?? null : null);
 
   useEffect(() => {
-    if (data !== undefined && initialSelected !== null && selected === null) {
+    if (
+      data !== undefined &&
+      initialSelected !== null &&
+      explicitSelected === null
+    ) {
       router.replace(pathname, { scroll: false });
     }
-  }, [data, initialSelected, pathname, router, selected]);
+  }, [data, explicitSelected, initialSelected, pathname, router]);
 
   useEffect(() => {
     if (selected !== null || focusAfterClose.current === null) return;
@@ -119,7 +174,9 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">{requestsOnly ? "Förfrågningar" : "Inkorg"}</h1>
           <p className="mt-1 text-zinc-500">
-            {requestsOnly ? "Kundernas önskemål, från första kontakt till klart." : "Vad behöver din hjälp just nu?"}
+            {requestsOnly
+              ? "Alla kundförfrågningar, från första kontakt till avslutat arbete."
+              : "Det som behöver din hjälp – förfrågningar och uppföljningar."}
           </p>
         </div>
         <Dialog open={creating} onOpenChange={setCreating}>
@@ -130,22 +187,24 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
           </DialogContent>
         </Dialog>
       </div>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrera listan">
-        <Button
-          variant={view === "attention" ? "secondary" : "ghost"}
-          aria-pressed={view === "attention"}
-          onClick={() => setView("attention")}
-        >
-          Behöver hjälp
-        </Button>
-        <Button
-          variant={view === "all" ? "secondary" : "ghost"}
-          aria-pressed={view === "all"}
-          onClick={() => setView("all")}
-        >
-          {requestsOnly ? "Alla förfrågningar" : "Alla"}
-        </Button>
-      </div>
+      {requestsOnly && (
+        <Tabs value={filter} onValueChange={setFilter}>
+          <TabsList
+            aria-label="Filtrera förfrågningar"
+            className="min-h-[50px] w-full sm:w-fit"
+          >
+            {requestFilters.map(([value, label]) => (
+              <TabsTrigger
+                className="min-h-11 px-3"
+                key={value}
+                value={value}
+              >
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
       <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(280px,2fr)_minmax(0,3fr)]">
         <div className={`min-w-0 overflow-hidden rounded-xl border bg-card ${selected ? "hidden lg:block" : ""}`}>
           {data === undefined ? (
@@ -153,18 +212,31 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
               Laddar inkorgen…
             </p>
           ) : rows?.length === 0 ? (
-            <p className="p-6 text-zinc-500">
-              {view === "attention"
-                ? "Inget väntar på din hjälp just nu."
-                : "Här visas dina förfrågningar och uppföljningar."}
-            </p>
+            <Empty className="min-h-52">
+              <EmptyHeader>
+                <EmptyTitle>
+                  {requestsOnly
+                    ? filter === "all"
+                      ? "Inga förfrågningar ännu"
+                      : "Inga förfrågningar i den här vyn"
+                    : "Allt är klart"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {requestsOnly
+                    ? filter === "all"
+                      ? "Skapa en förfrågan när en kund behöver hjälp."
+                      : "Välj Alla för att se övriga förfrågningar."
+                    : "Inget behöver din hjälp just nu. Alla kundförfrågningar finns under Förfrågningar."}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
               {rows?.map((row) => (
                 <li key={row.id}>
                   <button
                     aria-pressed={selected === row.id}
-                    className={`w-full space-y-2 p-5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 ${selected === row.id ? "bg-zinc-100 dark:bg-zinc-900" : ""}`}
+                    className={`w-full min-w-0 space-y-2 p-4 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 ${selected === row.id ? "bg-zinc-100 dark:bg-zinc-900" : ""}`}
                     id={`request-${row.id}`}
                     onClick={() => select(row.id)}
                   >
@@ -172,7 +244,13 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
                       <span className="text-sm text-zinc-500">
                         {row.customerId ? row.customer : "Ingen kund kopplad"}
                       </span>
-                      <Badge state={row.attention} />
+                      {requestsOnly ? (
+                        <StatusBadge variant="secondary">
+                          {statuses[row.status]}
+                        </StatusBadge>
+                      ) : (
+                        <Badge state={row.attention} />
+                      )}
                       {row.priority === "high" && (
                         <span className="text-xs font-medium text-red-700">
                           Prioriterat
@@ -180,7 +258,7 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
                       )}
                     </div>
                     <p className="font-semibold">{row.title}</p>
-                    {row.preview && (
+                    {row.preview && row.preview !== row.title && (
                       <p className="line-clamp-2 text-sm text-zinc-500">
                         {row.preview}
                       </p>
@@ -202,15 +280,22 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
           )}
           {data?.limited && (
             <p className="p-4 text-sm text-zinc-500">
-              Visar ett begränsat urval av de senaste förfrågningarna och uppföljningarna.
+              {requestsOnly
+                ? "Visar ett begränsat urval av de senaste förfrågningarna. Filtren gäller detta urval."
+                : "Visar ett begränsat urval av det som behöver hjälp."}
             </p>
           )}
         </div>
         {selected ? (
-          <Detail key={selected} target={selected} onBack={closeDetail} />
+          <Detail
+            key={selected}
+            target={selected}
+            onBack={closeDetail}
+            focusHeading={explicitSelected !== null}
+          />
         ) : (
           <div className="hidden lg:block rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
-            Välj en förfrågan för sammanfattning och nästa steg.
+            Välj ett ärende för sammanfattning och nästa steg.
           </div>
         )}
       </div>
@@ -303,7 +388,14 @@ function CreateRequest({
           </select>
         </label>
       </div>
-      <details><summary className="cursor-pointer py-2 text-sm">Mer information</summary><label className="mt-2 grid gap-2 text-sm">Koppla befintligt samtal<select className={field} name="conversation"><option value="">Inget samtal</option>{conversations?.map(c => <option key={c._id} value={c._id}>{c.subject || "Samtal"} · {date(c.updatedAt)}</option>)}</select></label><p className="mt-2 text-xs text-muted-foreground">Kunden hämtas från samtalet om ingen kund väljs ovan.</p></details>
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost">Mer information</Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <label className="mt-2 grid gap-2 text-sm">Koppla befintligt samtal<select className={field} name="conversation"><option value="">Inget samtal</option>{conversations?.map(c => <option key={c._id} value={c._id}>{c.subject || "Samtal"} · {date(c.updatedAt)}</option>)}</select></label><p className="mt-2 text-xs text-muted-foreground">Kunden hämtas från samtalet om ingen kund väljs ovan.</p>
+        </CollapsibleContent>
+      </Collapsible>
       {error && (
         <p role="alert" className="text-red-700">
           {error}
@@ -315,7 +407,15 @@ function CreateRequest({
     </form>
   );
 }
-function Detail({ target, onBack }: { target: Target; onBack: () => void }) {
+function Detail({
+  target,
+  onBack,
+  focusHeading,
+}: {
+  target: Target;
+  onBack: () => void;
+  focusHeading: boolean;
+}) {
   const heading = useRef<HTMLHeadingElement>(null);
   const data = useQuery(api.inbox.detail, { target });
   const bookings = useQuery(api.bookings.list, {});
@@ -342,7 +442,9 @@ function Detail({ target, onBack }: { target: Target; onBack: () => void }) {
     }
   }
   const loaded = data !== undefined;
-  useEffect(() => { if (loaded) heading.current?.focus(); }, [loaded]);
+  useEffect(() => {
+    if (loaded && focusHeading) heading.current?.focus();
+  }, [focusHeading, loaded]);
   if (!data) return <p role="status">Laddar förfrågan…</p>;
   const contact = customers?.find(customer => customer._id === data.customerId);
   const active =
@@ -420,8 +522,8 @@ function Detail({ target, onBack }: { target: Target; onBack: () => void }) {
           )}
         </div>
         <p className="text-xs text-zinc-500">
-          Bekräftelsen fördelar arbetet. Den pausar eller återstartar inte
-          automatiska svar.
+          När du tar hand om detta ser kollegorna det. Automatiska svar påverkas
+          inte.
         </p>
       </div>
       {error && (
@@ -491,7 +593,8 @@ function Detail({ target, onBack }: { target: Target; onBack: () => void }) {
             Inga meddelanden att visa.
           </p>
         ) : (
-          <ol className="mt-3 space-y-3">
+          <ScrollArea className="mt-3 h-96">
+          <ol className="space-y-3 pr-3">
             {data.messages.map((m) => (
               <li
                 key={m.id}
@@ -514,10 +617,15 @@ function Detail({ target, onBack }: { target: Target; onBack: () => void }) {
               </li>
             ))}
           </ol>
+          </ScrollArea>
         )}
       </section>
       {data.kind === "request" && (
-        <details className="border-t pt-4"><summary className="cursor-pointer py-2 font-medium">Redigera förfrågan</summary>
+        <Collapsible className="border-t pt-4">
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost">Redigera förfrågan</Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
         <form
           key={`${data.id}:${data.updatedAt}`}
           className="grid gap-3 border-t border-zinc-200 pt-5 dark:border-zinc-800"
@@ -667,7 +775,8 @@ function Detail({ target, onBack }: { target: Target; onBack: () => void }) {
             Spara
           </Button>
         </form>
-        </details>
+        </CollapsibleContent>
+        </Collapsible>
       )}
     </article>
   );
