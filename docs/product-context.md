@@ -48,14 +48,14 @@ Estimate/Quote handling, structured intake templates and Required Checks remain 
 
 ## Product UX direction — M9 foundation CURRENT; broader UX PLANNED
 
-- Make daily operation simple for nontechnical owners and staff. Use progressive complexity: useful defaults first, advanced configuration only when needed. Desktop-first with responsive layouts.
-- Use one Inbox across channels as an exception/next-action work surface, not merely a chronological message list. Prioritize Service Requests needing attention plus genuine Cases/exceptions, retaining related conversation, customer and booking context. Resolved AI-handled conversations remain accessible without dominating the queue. The Inbox is now the default authenticated work surface. Existing development consoles remain accessible under a collapsed administration section.
+- Make daily operation simple for nontechnical owners and staff. Use progressive complexity: useful defaults first, advanced configuration only when needed. Mobile-first, with a single-pane request detail on phones and an efficient list/detail layout on desktop.
+- Use one Inbox across channels as an exception/next-action work surface, not merely a chronological message list. Prioritize Service Requests needing attention plus genuine Cases/exceptions, retaining related conversation, customer and booking context. Resolved AI-handled conversations remain accessible without dominating the queue. The authenticated product shell opens with a minimal real-data Overview and provides Inbox, Förfrågningar, Kalender, Kunder and Inställningar. Service Requests are called “förfrågningar”; standalone Cases are secondary “uppföljningar”. Development consoles are separate under `/dev`, server-gated to authenticated development mode and absent from operator navigation.
 - Give staff a concise AI handoff summary: what the customer wants, what AI collected/did, missing information/checks, preliminary price/estimate when allowed, why human attention is needed and the recommended next action. Preserve the same Service Request through handoff where possible.
 - Make booking feel like a calendar: day/week views, understandable appointments and eventually resource columns. Do not expose database IDs or raw timestamps as the workflow.
 - Explain AI activity in everyday language: “Checked availability” and “Created booking,” with traceable outcomes. Do not show raw tool arguments or prompts.
 - Guide onboarding through business details, services/prices, opening hours, knowledge, booking connection, selected channels, AI permissions, testing and activation. Industry selection must not make the core industry-specific.
 - Give each channel a clear setup/status/test flow, including when AI should answer and how staff can take over. Adapt navigation to capabilities and user permissions; backend checks remain mandatory.
-- Establish shadcn/ui as the component foundation with our own typography, spacing, density, status language and product identity. Follow existing project conventions; avoid unnecessary component-framework migrations. The current main branch has Tailwind-based consoles, not an installed shadcn/Radix design system.
+- Establish shadcn/ui as the component foundation with our own typography, spacing, density, status language and product identity. Follow existing project conventions; avoid unnecessary component-framework migrations. CURRENT on this branch: a minimal shadcn/ui Radix foundation with Tailwind 4, restrained shared styling and accessible dialog/navigation primitives.
 
 ## Commercial and AI boundaries — PLANNED
 
@@ -87,4 +87,4 @@ This repository began independently with Create Next App (`bd12e3b`). The earlie
 
 New requests begin with attention requested for staff assessment. Lifecycle is `new`, `active`, `scheduled`, `completed`, `cancelled`; attention and next action are separate. Scheduling requires a matching confirmed booking; closing requires resolved attention, and reopening a terminal request goes through `active`. Booking lifecycle changes are not automatically synchronized to request lifecycle.
 
-The existing Tailwind UI is retained for this incremental milestone; installing shadcn and the broader design-system foundation remain deferred. This is an authenticated staff MVP, not a production channel launch.
+The UX shell pass adds minimal request creation using existing server defaults, action-first details and collapsed manual editing. Existing customer, service, knowledge and booking management has dedicated routes; the booking list is not the planned full calendar UX. Overview counts explicitly disclose bounded query results. This remains an authenticated staff MVP, not a production channel launch.

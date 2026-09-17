@@ -24,7 +24,7 @@ Tenant-scoped reads and mutations use this server context, tenant-first queries 
 | Tool Layer | `toolRegistry.ts`, `tools.ts`: explicit registry, separate read query/write mutation paths, strict input validators and named domain operations. |
 | AI Orchestrator v1 | `orchestrator.ts`, `orchestratorCore.ts`, `orchestratorInternal.ts`, `modelAdapter.ts`: authenticated text turns, bounded context/tool loop and server-written AI responses. |
 
-UI in `src/components/*-console.tsx` is minimal authenticated runtime tooling. A channel enum (`web`, `sms`, `phone`, `email`, `other`) does not mean those external channels are connected. Current functions run in a signed-in Clerk organization context; public/customer channel authentication is future work.
+Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives. Existing customer/service, knowledge and booking components remain simple management surfaces on dedicated routes. Raw conversations/Cases, Tool Console and fake orchestrator are isolated at `/dev`, checked server-side for development mode and Clerk sign-in; they are not linked from operator navigation. A channel enum (`web`, `sms`, `phone`, `email`, `other`) does not mean those external channels are connected. Current functions run in a signed-in Clerk organization context; public/customer channel authentication is future work.
 
 ## CURRENT — AI execution boundary
 
@@ -58,7 +58,10 @@ The initial conversation is optional and unique per request creation path; it is
 
 `workEvents` records reference, action, verified identity identifier and timestamp, without raw content. M9 request and attention writes use this audit path; existing Case APIs retain their prior audit limitations. Acknowledgment does not grant exclusive permissions: another tenant member can resolve attention, but cannot replace a colleague's acknowledgment. Resolving request attention leaves linked Cases, lifecycle and conversation open; a standalone Case uses its existing resolved lifecycle. Reopened linked Cases request attention again. No automatic model pause/resume is implied.
 
-`src/components/inbox.tsx` is the default Swedish staff surface: attention/All filters, request creation, structured summary editing, customer/service/booking links, lifecycle and next-action controls, acknowledgment/resolution and recent conversation history. Tenant/account changes reset local drafts and selected detail. Existing consoles remain in a collapsed administration section. Tailwind conventions are retained; shadcn installation and broader UX work remain deferred.
+The `(operator)` route group shares `ProductShell`: `/` provides a bounded real-data overview, `/inbox` the attention queue, `/requests` Service Requests only, `/calendar` the existing booking list, `/customers` customer management, and `/settings/services` plus `/settings/knowledge` existing configuration. No future configuration or full calendar capability is implied. Account/tenant changes reset operator drafts and selected detail; provisioning readiness gates tenant content, while Convex remains the authorization boundary.
+
+`src/components/inbox.tsx` uses shadcn Button, Badge, Input, Textarea and Dialog. The shell uses Sheet for mobile navigation, and Overview uses Card/Skeleton. On phones, a selected request replaces the list with an explicit back action; desktop shows both. Request creation takes a need/title, optional note/customer/service and a collapsed existing-conversation link. Existing server defaults remain authoritative. Detail prioritizes next action, acknowledgment/resolution, deterministic summary, contact context and history; manual relationships/lifecycle edits are collapsed. Attention resolution still does not complete the work lifecycle. Recorded activity is labeled neutrally because event provenance does not prove every action was performed by AI.
+
 
 Structured intake templates, Required Checks, Resources, Estimates/Quotes, multiple appointment/conversation management and a generic workflow engine remain PLANNED.
 

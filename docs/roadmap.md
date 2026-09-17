@@ -16,7 +16,11 @@ Updated: 2026-09-17 for Milestone 9, based on main `b8a492c`. Status describes r
 | 8 — AI Orchestrator v1 | Provider-neutral boundary, bounded context/tool loop, deterministic fake model | `a0aeb0a` — Add secure AI orchestrator |
 | 9 — Human Handoff + Inbox | Minimal generic Service Requests, attention/next action, verified acknowledgment, deterministic summaries, Swedish Inbox and compatible escalation/Case linking | `milestone-9/handoff-inbox` — milestone checkpoint |
 
-Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. No live LLM, production channels, full dashboard/design system, Resources, billing or automotive layer is implied by completion.
+Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. No live LLM, production channels, full dashboard, Resources, billing or automotive layer is implied by completion.
+
+## CURRENT — focused UX shell after M9
+
+A Swedish, mobile-first operator shell and minimal shadcn/ui foundation are implemented on top of the M9 checkpoint. Overview, Inbox, Förfrågningar, booking list, customers and existing settings have separate routes. Request creation and details emphasize simple actions with manual controls collapsed. Authenticated development tools live only at `/dev` in development mode. M9 domain/security semantics and the scope of M10–M19 are unchanged; the richer calendar and business configuration remain planned.
 
 ## IN PROGRESS — 8.5 Voice Feasibility Spike
 
@@ -42,7 +46,7 @@ Before considering production reuse: measure speech-end to audible response with
 
 Milestone 9 is complete for the scoped authenticated staff foundation. It deliberately does not implement live AI/channel takeover or resume: staff acknowledgment/resolution is explicit, and future escalation can request attention again. Cases remain supported and appear once through a linked request, or as standalone follow-up items. Staff create/edit requests; no new autonomous request-creation tool was required.
 
-Deferred: structured intake templates, Required Checks, Estimate/Quote models, Resources, multiple appointments/conversations per request, full pagination, shadcn/design-system installation, broader wireframes/onboarding/dashboard work, and automatic booking/request lifecycle synchronization. Inbox limits and operator semantics are documented in [architecture.md](architecture.md). Live authenticated browser acceptance and production deployment are separate from local deterministic tests/build verification.
+Deferred: structured intake templates, Required Checks, Estimate/Quote models, Resources, multiple appointments/conversations per request, full pagination, broader onboarding/dashboard work, and automatic booking/request lifecycle synchronization. Inbox limits and operator semantics are documented in [architecture.md](architecture.md). Live authenticated browser acceptance and production deployment are separate from local deterministic tests/build verification.
 
 **Next: Milestone 10 — Live LLM + evaluation suite**, preserving the policy prerequisites and success-claim hardening requirements in that milestone.
 

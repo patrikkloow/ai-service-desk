@@ -6,12 +6,12 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useTenantProvisioning } from "./tenant-bootstrap";
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong.";
+function errorMessage(): string {
+  return "Ändringen kunde inte sparas. Kontrollera uppgifterna och försök igen.";
 }
 
 function formatTime(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("sv-SE", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(timestamp));
@@ -44,10 +44,26 @@ export function BookingConsole() {
   const [endTime, setEndTime] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const activeCustomers = customers?.filter(
     (customer) => customer.status === "active",
   );
   const activeServices = services?.filter((service) => service.status === "active");
+  const [loadedAt] = useState(() => Date.now());
+  type Booking = NonNullable<typeof bookings>[number];
+  const rank = (booking: Booking) =>
+    booking.status === "confirmed" && booking.startTime >= loadedAt
+      ? 0
+      : booking.status === "confirmed"
+        ? 1
+        : 2;
+  const orderedBookings = [...(bookings ?? [])].sort((a, b) => {
+    const difference = rank(a) - rank(b);
+    if (difference !== 0) return difference;
+    return rank(a) === 0
+      ? a.startTime - b.startTime
+      : b.startTime - a.startTime;
+  });
 
   async function addBooking(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,10 +72,11 @@ export function BookingConsole() {
     const end = timestampFromInput(endTime);
 
     if (customerId === "" || serviceId === "" || start === null || end === null) {
-      setError("Choose a customer, service, and valid start and end times.");
+      setError("Välj kund, tjänst och giltiga start- och sluttider.");
       return;
     }
 
+    setBusy(true);
     try {
       await createBooking({
         customerId,
@@ -71,19 +88,21 @@ export function BookingConsole() {
       setStartTime("");
       setEndTime("");
       setNotes("");
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
+    } finally {
+      setBusy(false);
     }
   }
 
   async function reschedule(bookingId: Id<"bookings">, currentStart: number, currentEnd: number) {
     const startInput = window.prompt(
-      "New start time (YYYY-MM-DDTHH:mm)",
+      "Ny starttid (ÅÅÅÅ-MM-DDTHH:mm)",
       localDateTimeInput(currentStart),
     );
     if (startInput === null) return;
     const endInput = window.prompt(
-      "New end time (YYYY-MM-DDTHH:mm)",
+      "Ny sluttid (ÅÅÅÅ-MM-DDTHH:mm)",
       localDateTimeInput(currentEnd),
     );
     if (endInput === null) return;
@@ -91,14 +110,17 @@ export function BookingConsole() {
     const startTime = timestampFromInput(startInput);
     const endTime = timestampFromInput(endInput);
     if (startTime === null || endTime === null) {
-      setError("Enter valid start and end times.");
+      setError("Ange giltiga start- och sluttider.");
       return;
     }
 
+    setBusy(true);
     try {
       await rescheduleBooking({ bookingId, startTime, endTime });
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -106,118 +128,137 @@ export function BookingConsole() {
     bookingId: Id<"bookings">,
     action: "cancel" | "complete",
   ) {
+    const confirmed = window.confirm(
+      action === "cancel"
+        ? "Vill du avboka den här bokningen?"
+        : "Vill du markera den här bokningen som genomförd?",
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
     try {
       if (action === "cancel") {
         await cancelBooking({ bookingId });
       } else {
         await completeBooking({ bookingId });
       }
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <section className="rounded-xl border border-zinc-200 p-5 lg:col-span-2 dark:border-zinc-800">
-      <h2 className="text-lg font-semibold">Bookings</h2>
+      <h2 className="text-lg font-semibold">Bokningar</h2>
       {error !== null ? (
-        <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+        <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
       ) : null}
-      <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={addBooking}>
-        <select
+      <details className="mt-4"><summary className="cursor-pointer py-3 font-medium">Ny bokning</summary><form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={addBooking}>
+        <select aria-label="Kund"
           className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
           onChange={(event) => setCustomerId(event.target.value as Id<"customers">)}
           required
           value={customerId}
         >
-          <option value="">Choose an active customer</option>
+          <option value="">Välj en aktiv kund</option>
           {activeCustomers?.map((customer) => (
             <option key={customer._id} value={customer._id}>
               {customer.name}
             </option>
           ))}
         </select>
-        <select
+        <select aria-label="Tjänst"
           className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
           onChange={(event) => setServiceId(event.target.value as Id<"services">)}
           required
           value={serviceId}
         >
-          <option value="">Choose an active service</option>
+          <option value="">Välj en aktiv tjänst</option>
           {activeServices?.map((service) => (
             <option key={service._id} value={service._id}>
               {service.name}
             </option>
           ))}
         </select>
-        <input
+        <label className="grid min-w-0 gap-2 text-sm">Starttid<input
           className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
           onChange={(event) => setStartTime(event.target.value)}
           required
           type="datetime-local"
           value={startTime}
-        />
-        <input
+        /></label>
+        <label className="grid gap-2 text-sm">Sluttid<input
           className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
           onChange={(event) => setEndTime(event.target.value)}
           required
           type="datetime-local"
           value={endTime}
-        />
-        <input
+        /></label>
+        <label className="grid gap-2 text-sm md:col-span-2">Anteckning (valfritt)<input
           className="rounded-md border border-zinc-300 px-3 py-2 md:col-span-2 dark:border-zinc-700"
           onChange={(event) => setNotes(event.target.value)}
-          placeholder="Notes (optional)"
+          placeholder="Anteckning (valfritt)"
           value={notes}
-        />
+        /></label>
         <button
           className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white md:col-span-2 dark:bg-zinc-50 dark:text-zinc-950"
+          disabled={busy}
           type="submit"
         >
-          Add booking
+          {busy ? "Sparar…" : "Spara bokning"}
         </button>
-      </form>
+      </form></details>
+      {bookings === undefined ? <p role="status" className="mt-4">Laddar bokningar…</p> : bookings.length === 0 ? <p className="mt-4 text-muted-foreground">Inga bokningar ännu.</p> : null}
       <ul className="mt-5 divide-y divide-zinc-200 dark:divide-zinc-800">
-        {bookings?.map((booking) => (
-          <li className="flex items-center justify-between gap-3 py-3" key={booking._id}>
+        {orderedBookings.map((booking) => (
+          <li className="flex flex-col items-start justify-between gap-3 py-4 sm:flex-row sm:items-center" key={booking._id}>
             <div>
               <p className="font-medium">
                 {booking.customerName} · {booking.serviceName}
               </p>
               <p className="text-sm text-zinc-500">
-                {formatTime(booking.startTime)} – {formatTime(booking.endTime)} · {booking.status}
+                {formatTime(booking.startTime)} – {formatTime(booking.endTime)} · {booking.status === "confirmed" ? "Bekräftad" : booking.status === "cancelled" ? "Avbokad" : "Genomförd"}
               </p>
             </div>
             {booking.status === "confirmed" ? (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
-                  className="text-sm underline"
+                  className="min-h-11 px-2 text-sm underline"
+                  disabled={busy}
                   onClick={() => void reschedule(booking._id, booking.startTime, booking.endTime)}
                   type="button"
                 >
-                  Reschedule
+                  Boka om
                 </button>
                 <button
-                  className="text-sm underline"
+                  className="min-h-11 px-2 text-sm underline"
+                  disabled={busy}
                   onClick={() => void changeStatus(booking._id, "complete")}
                   type="button"
                 >
-                  Complete
+                  Markera som genomförd
                 </button>
                 <button
-                  className="text-sm text-red-700 underline dark:text-red-300"
+                  className="min-h-11 px-2 text-sm text-red-700 underline dark:text-red-300"
+                  disabled={busy}
                   onClick={() => void changeStatus(booking._id, "cancel")}
                   type="button"
                 >
-                  Cancel
+                  Avboka
                 </button>
               </div>
             ) : null}
           </li>
         ))}
       </ul>
+      <p className="mt-4 text-xs text-muted-foreground">
+        Kommande bekräftade bokningar visas närmast först. Listan visar högst 100 bokningar.
+      </p>
     </section>
   );
 }

@@ -4,17 +4,12 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { BookingConsole } from "./booking-console";
-import { AiOrchestratorConsole } from "./ai-orchestrator-console";
-import { ConversationCaseConsole } from "./conversation-case-console";
-import { KnowledgeConsole } from "./knowledge-console";
 import { useTenantProvisioning } from "./tenant-bootstrap";
-import { ToolConsole } from "./tool-console";
 
 type PriceKind = "not_specified" | "fixed" | "from";
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong.";
+function errorMessage(): string {
+  return "Ändringen kunde inte sparas. Kontrollera uppgifterna och försök igen.";
 }
 
 function formatPrice(pricing: {
@@ -23,27 +18,27 @@ function formatPrice(pricing: {
   currency?: string;
 }): string {
   if (pricing.kind === "not_specified") {
-    return "Price not specified";
+    return "Pris ej angivet";
   }
 
   const amount = (pricing.amountMinor ?? 0) / 100;
-  const formatted = new Intl.NumberFormat(undefined, {
+  const formatted = new Intl.NumberFormat("sv-SE", {
     style: "currency",
     currency: pricing.currency,
   }).format(amount);
 
-  return pricing.kind === "from" ? `From ${formatted}` : formatted;
+  return pricing.kind === "from" ? `Från ${formatted}` : formatted;
 }
 
-export function CoreDataConsole() {
+export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   const { isReady, error: provisioningError } = useTenantProvisioning();
   const customers = useQuery(
     api.customers.list,
-    isReady ? {} : "skip",
+    isReady && area === "customers" ? {} : "skip",
   );
   const services = useQuery(
     api.services.list,
-    isReady ? {} : "skip",
+    isReady && area === "services" ? {} : "skip",
   );
   const createCustomer = useMutation(api.customers.create);
   const updateCustomer = useMutation(api.customers.update);
@@ -61,11 +56,12 @@ export function CoreDataConsole() {
   const [priceAmount, setPriceAmount] = useState("");
   const [currency, setCurrency] = useState("SEK");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   if (!isReady) {
     return (
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        {provisioningError ?? "Preparing your active workspace…"}
+        {provisioningError ?? "Förbereder arbetsytan…"}
       </p>
     );
   }
@@ -73,6 +69,7 @@ export function CoreDataConsole() {
   async function addCustomer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setBusy(true);
 
     try {
       await createCustomer({
@@ -83,8 +80,10 @@ export function CoreDataConsole() {
       setCustomerName("");
       setCustomerEmail("");
       setCustomerPhone("");
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -93,17 +92,18 @@ export function CoreDataConsole() {
     setError(null);
 
     const duration = serviceDuration.trim() ? Number(serviceDuration) : undefined;
-    const amountMinor = priceAmount.trim() ? Number(priceAmount) : undefined;
+    const amountMinor = priceAmount.trim() ? Math.round(Number(priceAmount) * 100) : undefined;
 
     if (
       (duration !== undefined && !Number.isSafeInteger(duration)) ||
       (priceKind !== "not_specified" &&
         (amountMinor === undefined || !Number.isSafeInteger(amountMinor)))
     ) {
-      setError("Duration and price must be whole numbers.");
+      setError("Ange hela minuter och ett giltigt pris.");
       return;
     }
 
+    setBusy(true);
     try {
       await createService({
         name: serviceName,
@@ -125,8 +125,10 @@ export function CoreDataConsole() {
       setPriceKind("not_specified");
       setPriceAmount("");
       setCurrency("SEK");
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -134,7 +136,7 @@ export function CoreDataConsole() {
     customerId: Id<"customers">,
     currentName: string,
   ) {
-    const name = window.prompt("Customer name", currentName);
+    const name = window.prompt("Kundnamn", currentName);
 
     if (name === null) {
       return;
@@ -142,8 +144,8 @@ export function CoreDataConsole() {
 
     try {
       await updateCustomer({ customerId, name });
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
     }
   }
 
@@ -151,7 +153,7 @@ export function CoreDataConsole() {
     serviceId: Id<"services">,
     currentName: string,
   ) {
-    const name = window.prompt("Service name", currentName);
+    const name = window.prompt("Tjänstens namn", currentName);
 
     if (name === null) {
       return;
@@ -159,150 +161,154 @@ export function CoreDataConsole() {
 
     try {
       await updateService({ serviceId, name });
-    } catch (cause) {
-      setError(errorMessage(cause));
+    } catch {
+      setError(errorMessage());
     }
   }
 
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-2">
+    <div className="grid max-w-4xl gap-6">
       {error !== null ? (
-        <p className="lg:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+        <p role="alert" className="lg:col-span-2 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
       ) : null}
-      <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <h2 className="text-lg font-semibold">Customers</h2>
-        <form className="mt-4 grid gap-3" onSubmit={addCustomer}>
-          <input
+      {area === "customers" && <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
+        <h2 className="text-lg font-semibold">Kundregister</h2>
+        <details className="mt-4"><summary className="cursor-pointer py-3 font-medium">Lägg till</summary><form className="mt-4 grid gap-3" onSubmit={addCustomer}>
+          <label className="grid min-w-0 gap-2 text-sm">Namn<input
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             onChange={(event) => setCustomerName(event.target.value)}
-            placeholder="Name"
+            placeholder="Namn"
             required
             value={customerName}
-          />
-          <input
+          /></label>
+          <label className="grid min-w-0 gap-2 text-sm">E-post (valfritt)<input
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             onChange={(event) => setCustomerEmail(event.target.value)}
-            placeholder="Email (optional)"
+            placeholder="E-post (valfritt)"
             type="email"
             value={customerEmail}
-          />
-          <input
+          /></label>
+          <label className="grid min-w-0 gap-2 text-sm">Telefon (valfritt)<input
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             onChange={(event) => setCustomerPhone(event.target.value)}
-            placeholder="Phone (optional)"
+            placeholder="Telefon (valfritt)"
             value={customerPhone}
-          />
+          /></label>
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-950"
+            disabled={busy}
             type="submit"
           >
-            Add customer
+            {busy ? "Sparar…" : "Spara kund"}
           </button>
-        </form>
+        </form></details>
+        {customers === undefined ? <p role="status" className="mt-4">Laddar kunder…</p> : customers.length === 0 ? <p className="mt-4 text-muted-foreground">Inga kunder ännu.</p> : null}
         <ul className="mt-5 divide-y divide-zinc-200 dark:divide-zinc-800">
           {customers?.map((customer) => (
-            <li className="flex items-center justify-between gap-3 py-3" key={customer._id}>
+            <li className="flex flex-col items-start justify-between gap-3 py-4 sm:flex-row sm:items-center" key={customer._id}>
               <div>
                 <p className="font-medium">{customer.name}</p>
                 <p className="text-sm text-zinc-500">
                   {[customer.email, customer.phone].filter(Boolean).join(" · ") ||
-                    "No contact details"}
-                  {` · ${customer.status}`}
+                    "Inga kontaktuppgifter"}
+                  {customer.status === "active" ? " · Aktiv" : " · Inaktiv"}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
-                  className="text-sm underline"
+                  className="min-h-11 px-2 text-sm underline"
                   onClick={() => void renameCustomer(customer._id, customer.name)}
                   type="button"
                 >
-                  Rename
+                  Byt namn
                 </button>
                 <button
-                  className="text-sm text-red-700 underline dark:text-red-300"
+                  className="min-h-11 px-2 text-sm text-red-700 underline dark:text-red-300"
                   onClick={() =>
                     void setCustomerStatus({
                       customerId: customer._id,
                       status:
                         customer.status === "active" ? "inactive" : "active",
-                    })
+                    }).catch(() => setError("Ändringen kunde inte sparas."))
                   }
                   type="button"
                 >
-                  {customer.status === "active" ? "Deactivate" : "Activate"}
+                  {customer.status === "active" ? "Inaktivera" : "Aktivera"}
                 </button>
               </div>
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
 
-      <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <h2 className="text-lg font-semibold">Services</h2>
-        <form className="mt-4 grid gap-3" onSubmit={addService}>
-          <input
+      {area === "services" && <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
+        <h2 className="text-lg font-semibold">Tjänster</h2>
+        <details className="mt-4"><summary className="cursor-pointer py-3 font-medium">Lägg till</summary><form className="mt-4 grid gap-3" onSubmit={addService}>
+          <label className="grid min-w-0 gap-2 text-sm">Namn<input
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             onChange={(event) => setServiceName(event.target.value)}
-            placeholder="Name"
+            placeholder="Namn"
             required
             value={serviceName}
-          />
-          <textarea
+          /></label>
+          <label className="grid min-w-0 gap-2 text-sm">Beskrivning (valfritt)<textarea
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             onChange={(event) => setServiceDescription(event.target.value)}
-            placeholder="Description (optional)"
+            placeholder="Beskrivning (valfritt)"
             value={serviceDescription}
-          />
-          <input
+          /></label>
+          <label className="grid min-w-0 gap-2 text-sm">Tidsåtgång i minuter (valfritt)<input
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             min="0"
             onChange={(event) => setServiceDuration(event.target.value)}
-            placeholder="Duration in minutes (optional)"
+            placeholder="Tidsåtgång i minuter (valfritt)"
             type="number"
             value={serviceDuration}
-          />
-          <select
+          /></label>
+          <select aria-label="Pristyp"
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             onChange={(event) => setPriceKind(event.target.value as PriceKind)}
             value={priceKind}
           >
-            <option value="not_specified">Price not specified</option>
-            <option value="fixed">Fixed price</option>
-            <option value="from">From price</option>
+            <option value="not_specified">Pris ej angivet</option>
+            <option value="fixed">Fast pris</option>
+            <option value="from">Frånpris</option>
           </select>
           {priceKind !== "not_specified" ? (
             <div className="grid grid-cols-2 gap-3">
-              <input
+              <label className="grid min-w-0 gap-2 text-sm">Pris, t.ex. 99,00<input
                 className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
                 min="0"
                 onChange={(event) => setPriceAmount(event.target.value)}
-                placeholder="Minor units, e.g. 9900"
+                placeholder="Pris, t.ex. 99,00" step="0.01"
                 required
                 type="number"
                 value={priceAmount}
-              />
-              <input
+              /></label>
+              <label className="grid min-w-0 gap-2 text-sm">Valuta<input
                 className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
                 maxLength={3}
                 onChange={(event) => setCurrency(event.target.value)}
-                placeholder="Currency"
+                placeholder="Valuta"
                 required
                 value={currency}
-              />
+              /></label>
             </div>
           ) : null}
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-950"
+            disabled={busy}
             type="submit"
           >
-            Add service
+            {busy ? "Sparar…" : "Spara tjänst"}
           </button>
-        </form>
+        </form></details>
+        {services === undefined ? <p role="status" className="mt-4">Laddar tjänster…</p> : services.length === 0 ? <p className="mt-4 text-muted-foreground">Inga tjänster ännu.</p> : null}
         <ul className="mt-5 divide-y divide-zinc-200 dark:divide-zinc-800">
           {services?.map((service) => (
-            <li className="flex items-center justify-between gap-3 py-3" key={service._id}>
+            <li className="flex flex-col items-start justify-between gap-3 py-4 sm:flex-row sm:items-center" key={service._id}>
               <div>
                 <p className="font-medium">{service.name}</p>
                 <p className="text-sm text-zinc-500">
@@ -310,41 +316,36 @@ export function CoreDataConsole() {
                   {service.durationMinutes !== undefined
                     ? ` · ${service.durationMinutes} min`
                     : ""}
-                  {` · ${service.status}`}
+                  {service.status === "active" ? " · Aktiv" : " · Inaktiv"}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
-                  className="text-sm underline"
+                  className="min-h-11 px-2 text-sm underline"
                   onClick={() => void renameService(service._id, service.name)}
                   type="button"
                 >
-                  Rename
+                  Byt namn
                 </button>
                 <button
-                  className="text-sm text-red-700 underline dark:text-red-300"
+                  className="min-h-11 px-2 text-sm text-red-700 underline dark:text-red-300"
                   onClick={() =>
                     void setServiceStatus({
                       serviceId: service._id,
                       status:
                         service.status === "active" ? "inactive" : "active",
-                    })
+                    }).catch(() => setError("Ändringen kunde inte sparas."))
                   }
                   type="button"
                 >
-                  {service.status === "active" ? "Deactivate" : "Activate"}
+                  {service.status === "active" ? "Inaktivera" : "Aktivera"}
                 </button>
               </div>
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
 
-      <BookingConsole />
-      <KnowledgeConsole />
-      <ConversationCaseConsole />
-      <ToolConsole />
-      <AiOrchestratorConsole />
     </div>
   );
 }
