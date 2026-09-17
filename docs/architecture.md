@@ -1,6 +1,6 @@
 # Architecture
 
-Baseline: 2026-09-16, `main` at `a0aeb0a`. Product direction and source basis: [product-context.md](product-context.md). Mandatory rules: [security-invariants.md](security-invariants.md).
+Updated: 2026-09-17, Milestone 9 built from `main` at `b8a492c`. Product direction and source basis: [product-context.md](product-context.md). Mandatory rules: [security-invariants.md](security-invariants.md).
 
 ## CURRENT — stack and ownership
 
@@ -12,14 +12,15 @@ Clerk is the source of truth for identity, organizations, memberships and roles.
 
 Tenant-scoped reads and mutations use this server context, tenant-first queries and record-ownership checks. Client-side org selection is only a readiness/UI signal. Domain IDs supplied by callers must still be checked against the derived tenant, including linked records.
 
-## CURRENT — implemented domains through Milestone 8
+## CURRENT — implemented domains through Milestone 9
 
 | Area | Implementation and limits |
 | --- | --- |
 | Customers / Services | `convex/customers.ts`, `services.ts`: tenant-scoped management and active/inactive status. Service prices use `not_specified`, `fixed`, or `from`, with integer minor units and currency. |
 | Bookings / Availability | `bookings.ts`, `availability.ts`: create/reschedule/cancel/complete, source snapshots, valid time intervals and confirmed-booking conflict checks. Unix milliseconds; half-open intervals; 1 minute–24 hour duration. Capacity is effectively one across the tenant, not per resource. No business-hours calendar or external booking provider. |
 | Knowledge | `knowledge.ts`: active/inactive text entries and tenant-filtered full-text search. No embeddings, vector RAG, file ingestion or provider-owned knowledge store. |
-| Conversations / Cases | `conversations.ts`, `cases.ts`: optional customer association, channel label, open/resolved lifecycle, append-only messages and minimal activity events. Cases may stand alone or link to a conversation/customer. `human.escalate` creates/reuses an open follow-up case without resolving the conversation. No full assignment/handoff workflow yet. |
+| Conversations / Cases | `conversations.ts`, `cases.ts`: optional customer association, channel label, open/resolved lifecycle, append-only messages and minimal activity events. Cases may stand alone or link to a conversation/customer. `human.escalate` creates/reuses an open follow-up case without resolving the conversation. M9 adds verified acknowledgment and Inbox attention controls, retaining the Case API contract. |
+| Service Requests / Inbox | `serviceRequests.ts`, `inbox.ts`: minimal generic work object, indexed attention queue, operator ownership and deterministic summary/context. `workEvents` stores safe action/actor references. |
 | Tool Layer | `toolRegistry.ts`, `tools.ts`: explicit registry, separate read query/write mutation paths, strict input validators and named domain operations. |
 | AI Orchestrator v1 | `orchestrator.ts`, `orchestratorCore.ts`, `orchestratorInternal.ts`, `modelAdapter.ts`: authenticated text turns, bounded context/tool loop and server-written AI responses. |
 
@@ -43,15 +44,23 @@ Role claims are validated (`org:admin` / `org:member`), but current domains do n
 
 - Final model text is format/length validated, but not generically semantically verified against tool results. Success-claim verification is a required hardening/evaluation target, especially for Milestone 10 live LLM/evals.
 - Tenant/conversation routing does not prove an external customer is authorized to mutate every booking in the tenant. External channels must enforce customer authorization to the specific target record/action.
-- `human.escalate` creates/reuses an attention item implemented as a follow-up Case; it does not automatically implement takeover/resume or stop all future orchestration. Human handoff behavior remains Milestone 9 work.
+- `human.escalate` creates/reuses an attention item implemented as a follow-up Case; it does not automatically implement takeover/resume or stop all future orchestration. M9 adds operator acknowledgment/resolution and linked request attention, but still does not pause or resume model/channel execution.
 
-## PLANNED — Service Request core and Inbox
+## CURRENT — minimal Service Request core and Inbox (M9)
 
-Service Request is the primary work object from intake through assessment/estimate, booking, quote and completion; it is absent from the current schema, tools and UI. Conversations, Cases and Bookings remain CURRENT. See [product-context.md](product-context.md) for terminology and pricing semantics.
+`serviceRequests` has tenant ownership, optional customer/service/initial conversation/booking references, bounded title and structured `wants`/`known`/`missing` summary, timestamps, compact lifecycle, attention state/reason, next action and verified acknowledgment identity. Lifecycle (`new`, `active`, `scheduled`, `completed`, `cancelled`) is independent of attention (`none`, `requested`, `acknowledged`, `resolved`) and next action (`ask_customer`, `book_assessment`, `human_review`, `wait`, `none`). New staff-created requests need assessment. Closing requires resolved attention; reopening goes through active. Scheduling requires a matching confirmed booking. Subsequent booking changes do not automatically move request lifecycle.
 
-Introduce a simple Service Request core as part of or immediately before Milestone 9: template-specific structured intake, known/missing information, required checks, attention state/reason, next action and related assessment/work appointments. Assessments may be free or paid site visits, consultations, diagnostics, measurements or inspections. Price is a structured fact; Estimate is preliminary; Quote is a formal offer. Estimate/Quote handling and these relationships are planned, not existing schema or finalized APIs. Industry-specific fields belong in future templates/layers, not core columns.
+The initial conversation is optional and unique per request creation path; it is an initial-context link, not a permanent restriction against a future many-conversation relation. A late customer link is checked and propagated to an initially unknown request customer. Established request customers cannot be replaced through these APIs. Cases can link to a request; linking can adopt a Case conversation as initial context if unclaimed. There is no full conversion engine.
 
-The Inbox should prioritize Service Requests needing attention/next action, with a concise handoff summary of intent, collected information/actions, missing information/checks, allowed pricing/estimate, attention reason and recommended next step. Keep resolved AI-handled conversations accessible outside the main work queue. Human handoff should preserve the same Service Request; Cases remain secondary exceptions/internal follow-up. Continuing a Case into a Service Request must preserve context without duplicate administration; no conversion feature exists today. Avoid a general workflow engine for the MVP.
+`human.escalate` retains its existing Case result and open-case duplicate resistance. When the conversation has a request, the Case links to it and attention is requested on the same request. Repeated escalation preserves staff acknowledgment and updates the reason. Creating a request from a conversation adopts its existing open escalation. Ordinary `case.create` also links to the initial conversation's request and requests review. No new AI write tools or generic dispatch were introduced. Request creation/editing is staff-operated; AI request creation remains deferred.
+
+`inbox.list` uses tenant-first indexes, excludes linked Cases from the standalone queue, prioritizes requested over acknowledged items and then recency. Queries are bounded: up to 100 requests per attention state (100 total in All) and 100 standalone Cases; UI discloses a limited result set. This is not full pagination. `inbox.detail` returns checked customer/booking links, up to 50 linked Cases, 50 recent messages and 50 recent activity events, and at most 10 booking references. Summaries use explicit saved fields and recorded event labels; they do not infer completed work, missing checks or business facts from transcripts. An empty summary section says no information is recorded.
+
+`workEvents` records reference, action, verified identity identifier and timestamp, without raw content. M9 request and attention writes use this audit path; existing Case APIs retain their prior audit limitations. Acknowledgment does not grant exclusive permissions: another tenant member can resolve attention, but cannot replace a colleague's acknowledgment. Resolving request attention leaves linked Cases, lifecycle and conversation open; a standalone Case uses its existing resolved lifecycle. Reopened linked Cases request attention again. No automatic model pause/resume is implied.
+
+`src/components/inbox.tsx` is the default Swedish staff surface: attention/All filters, request creation, structured summary editing, customer/service/booking links, lifecycle and next-action controls, acknowledgment/resolution and recent conversation history. Tenant/account changes reset local drafts and selected detail. Existing consoles remain in a collapsed administration section. Tailwind conventions are retained; shadcn installation and broader UX work remain deferred.
+
+Structured intake templates, Required Checks, Resources, Estimates/Quotes, multiple appointment/conversation management and a generic workflow engine remain PLANNED.
 
 ## PLANNED — channel and provider boundaries
 

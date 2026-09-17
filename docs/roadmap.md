@@ -1,8 +1,8 @@
 # Risk-first roadmap
 
-Baseline: 2026-09-16, main `a0aeb0a`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
+Updated: 2026-09-17 for Milestone 9, based on main `b8a492c`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
 
-## CURRENT — completed milestones 1–8
+## CURRENT — completed milestones 1–9
 
 | Milestone | Completed scope | Important Git checkpoint(s) |
 | --- | --- | --- |
@@ -14,8 +14,9 @@ Baseline: 2026-09-16, main `a0aeb0a`. Status describes repository implementation
 | 6 — Conversations + Cases | Messages, lifecycle events and follow-up records | `96bf02a` — Add tenant-scoped conversations and cases |
 | 7 — Secure Tool Layer | Explicit read/write registry, validated domain operations, escalation | `d07fbef` — Add secure AI tool action layer |
 | 8 — AI Orchestrator v1 | Provider-neutral boundary, bounded context/tool loop, deterministic fake model | `a0aeb0a` — Add secure AI orchestrator |
+| 9 — Human Handoff + Inbox | Minimal generic Service Requests, attention/next action, verified acknowledgment, deterministic summaries, Swedish Inbox and compatible escalation/Case linking | `milestone-9/handoff-inbox` — milestone checkpoint |
 
-Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. No live LLM, production channels, polished Inbox, Resources, billing or automotive layer is implied by completion.
+Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. No live LLM, production channels, full dashboard/design system, Resources, billing or automotive layer is implied by completion.
 
 ## IN PROGRESS — 8.5 Voice Feasibility Spike
 
@@ -27,7 +28,6 @@ Before considering production reuse: measure speech-end to audible response with
 
 | Milestone | Outcome |
 | --- | --- |
-| 9 — Human Handoff + Inbox | Exception/next-action queue centered on Service Requests with attention state/reason, next action and concise AI handoff summaries, plus genuine Cases. Preserve the same work object through handoff, related conversation/booking context, ownership and follow-up. Existing escalation is only a backend primitive; define explicit takeover/resume behavior. |
 | 10 — Live LLM + evaluation suite | Server-side live provider adapter alongside deterministic fakes; realistic scenario suite for grounding, tools, injection attempts, failures and escalation, including required hardening/evaluation of final success claims against tool results. Resolve policy prerequisites before enabling autonomous customer-facing writes. |
 | 11 — Business Configuration + AI Policies | Per-tenant language/tone, opening hours, booking/handoff rules, enabled tools and enforced autonomy/confirmation policies. |
 | 12 — Channel Foundation + Channel Sessions | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history. |
@@ -40,9 +40,11 @@ Before considering production reuse: measure speech-end to audible response with
 | 19 — Automotive configuration/layer | Workshop-specific information/workflows above the general core. |
 | Pilot | Validate correct handling/bookings, escalation, staff time saved, error rate, customer acceptance and willingness to pay. Start with observe/draft and progress to safe automation. |
 
-As part of or immediately before Milestone 9, introduce the currently absent **Service Request core**: simple lifecycle, structured intake, known/missing information, required checks, attention/next action and assessment appointment relationships. Follow the Price/Estimate/Quote distinctions in [product-context.md](product-context.md); these are planned concepts, not completed features. Keep Cases secondary and avoid duplicate work objects.
+Milestone 9 is complete for the scoped authenticated staff foundation. It deliberately does not implement live AI/channel takeover or resume: staff acknowledgment/resolution is explicit, and future escalation can request attention again. Cases remain supported and appear once through a linked request, or as standalone follow-up items. Staff create/edit requests; no new autonomous request-creation tool was required.
 
-Before or as part of Milestone 9, establish the **UX/design-system foundation**: wireframes for onboarding -> overview -> Inbox/conversation -> booking, shared layouts/forms/statuses, and empty/loading/error states. Use shadcn/ui components with a custom product identity, not a generic template. Reuse existing conventions and avoid unnecessary component-framework migration; shadcn is not yet installed on main.
+Deferred: structured intake templates, Required Checks, Estimate/Quote models, Resources, multiple appointments/conversations per request, full pagination, shadcn/design-system installation, broader wireframes/onboarding/dashboard work, and automatic booking/request lifecycle synchronization. Inbox limits and operator semantics are documented in [architecture.md](architecture.md). Live authenticated browser acceptance and production deployment are separate from local deterministic tests/build verification.
+
+**Next: Milestone 10 — Live LLM + evaluation suite**, preserving the policy prerequisites and success-claim hardening requirements in that milestone.
 
 General workflows remain planned; do not turn Milestone 9 into an unlimited workflow-builder project without a scope decision. Pilot discovery and commercial validation should happen throughout, even though the integrated Pilot is listed last. Later milestones may move when evidence justifies it; document changes explicitly.
 

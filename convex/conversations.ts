@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { requestForConversation, audit } from "./serviceRequests";
 import { requireCurrentTenant } from "./tenant";
 
 const conversationChannel = v.union(
@@ -34,14 +35,20 @@ function optionalText(
   if (value === undefined) return undefined;
   const normalized = value.trim();
   if (normalized.length === 0) return undefined;
-  if (normalized.length > maximumLength) throw new Error(`${field} is too long`);
+  if (normalized.length > maximumLength)
+    throw new Error(`${field} is too long`);
   return normalized;
 }
 
-function requiredText(value: string, field: string, maximumLength: number): string {
+function requiredText(
+  value: string,
+  field: string,
+  maximumLength: number,
+): string {
   const normalized = value.trim();
   if (normalized.length === 0) throw new Error(`${field} is required`);
-  if (normalized.length > maximumLength) throw new Error(`${field} is too long`);
+  if (normalized.length > maximumLength)
+    throw new Error(`${field} is too long`);
   return normalized;
 }
 
@@ -112,7 +119,9 @@ export async function appendConversationMessage(
 }
 
 function openConversationDocument(
-  conversation: NonNullable<Awaited<ReturnType<typeof getAvailableConversation>>>,
+  conversation: NonNullable<
+    Awaited<ReturnType<typeof getAvailableConversation>>
+  >,
   updatedAt: number,
 ) {
   return {
@@ -121,7 +130,9 @@ function openConversationDocument(
       ? { customerId: conversation.customerId }
       : {}),
     channel: conversation.channel,
-    ...(conversation.subject !== undefined ? { subject: conversation.subject } : {}),
+    ...(conversation.subject !== undefined
+      ? { subject: conversation.subject }
+      : {}),
     status: "open" as const,
     createdAt: conversation.createdAt,
     updatedAt,
@@ -158,7 +169,10 @@ export const listForCustomer = query({
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenant(ctx);
     const customer = await ctx.db.get(args.customerId);
-    if (customer === null || customer.organizationId !== tenant.organization._id) {
+    if (
+      customer === null ||
+      customer.organizationId !== tenant.organization._id
+    ) {
       return [];
     }
     return await ctx.db
@@ -217,10 +231,27 @@ export const linkCustomer = mutation({
     customerId: v.id("customers"),
   },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) throw new Error("Conversation is unavailable");
     await getTenantCustomer(ctx, conversation.organizationId, args.customerId);
+    const request = await requestForConversation(
+      ctx,
+      conversation._id,
+      conversation.organizationId,
+    );
+    if (request?.customerId && request.customerId !== args.customerId)
+      throw new Error("Customer must match linked request");
     const now = Date.now();
+    if (request && !request.customerId) {
+      await ctx.db.patch(request._id, {
+        customerId: args.customerId,
+        updatedAt: now,
+      });
+      await audit(ctx, request._id, "linked");
+    }
     await ctx.db.patch("conversations", conversation._id, {
       customerId: args.customerId,
       updatedAt: now,
@@ -237,9 +268,13 @@ export const linkCustomer = mutation({
 export const resolve = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) throw new Error("Conversation is unavailable");
-    if (conversation.status !== "open") throw new Error("Conversation is not open");
+    if (conversation.status !== "open")
+      throw new Error("Conversation is not open");
     const now = Date.now();
     await ctx.db.patch("conversations", conversation._id, {
       status: "resolved",
@@ -258,9 +293,13 @@ export const resolve = mutation({
 export const reopen = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) throw new Error("Conversation is unavailable");
-    if (conversation.status !== "resolved") throw new Error("Conversation is not resolved");
+    if (conversation.status !== "resolved")
+      throw new Error("Conversation is not resolved");
     const now = Date.now();
     await ctx.db.replace(
       "conversations",
@@ -279,7 +318,10 @@ export const reopen = mutation({
 export const listMessages = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) return [];
     return await ctx.db
       .query("conversationMessages")
@@ -300,16 +342,27 @@ export const appendMessage = mutation({
     content: v.string(),
   },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) throw new Error("Conversation is unavailable");
-    await appendConversationMessage(ctx, conversation, args.senderType, args.content);
+    await appendConversationMessage(
+      ctx,
+      conversation,
+      args.senderType,
+      args.content,
+    );
   },
 });
 
 export const listEvents = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) return [];
     return await ctx.db
       .query("conversationEvents")

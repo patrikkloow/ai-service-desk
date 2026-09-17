@@ -1,12 +1,12 @@
 # Security invariants
 
-These MUST/MUST NOT rules govern new work and preservation of existing boundaries. They are not a claim that every future subsystem exists. Baseline implementation: main `a0aeb0a`, 2026-09-16; see [architecture.md](architecture.md) for current limits.
+These MUST/MUST NOT rules govern new work and preservation of existing boundaries. They are not a claim that every future subsystem exists. Updated implementation: Milestone 9 based on main `b8a492c`, 2026-09-17; see [architecture.md](architecture.md) for current limits.
 
 ## Tenant identity and authorization
 
 - Tenant identity MUST be derived server-side from verified Clerk authentication and active organization context. Tenant-scoped Convex functions MUST use `requireCurrentTenant()` or an equally verified server path, reject unavailable/suspended tenants and preserve the Clerk-to-internal-organization mapping.
 - Authorization MUST NOT trust client-provided `orgId`/`organizationId`, `userId`, role, prompt claims, URL parameters or local display fields. Clerk owns identity, membership and roles; local projections MUST NOT become another authority.
-- Every record accessed by ID MUST be checked for tenant ownership, including related customers, services, bookings, conversations and cases. List/search operations MUST constrain by the derived tenant. An ID's validity is not authorization.
+- Every record accessed by ID MUST be checked for tenant ownership, including related customers, services, bookings, conversations, cases and service requests. List/search operations MUST constrain by the derived tenant. An ID's validity is not authorization.
 - Future external/customer-facing actions MUST authorize the customer for the specific target record and action in addition to tenant/conversation routing. Tenant routing alone is insufficient; it MUST NOT confer permission to mutate every booking or other record in that tenant.
 - Roles/permissions MUST remain separate from capabilities/entitlements. When capabilities are introduced, enforcement MUST happen on the backend as well as in the UI. A paid plan MUST NOT grant a user role, and a role MUST NOT imply a paid capability.
 - Future public channel entry points MUST authenticate/verify their provider or session and derive tenant routing through trusted server mappings. They MUST NOT turn the current signed-in APIs into unauthenticated endpoints for convenience. Customer identity linking MUST NOT rely on weak matches alone.
@@ -42,3 +42,11 @@ These MUST/MUST NOT rules govern new work and preservation of existing boundarie
 ## Verification expectations
 
 For relevant code changes, test unauthorized access, multiple tenants, foreign record IDs, malformed/extra tool arguments and spoofed AI authorship. For orchestrator/write changes also exercise provider failure, loop limits, uncertain writes and duplicate escalation. Match testing to the change; documentation-only edits need diff/link/status checks, not a full application suite.
+
+## M9 handoff enforcement
+
+- Request ownership, referenced records, Inbox reads and handoff writes MUST use verified tenant context. Acknowledgment identity MUST come from `identity.tokenIdentifier`, never client-supplied user fields. This stable identity identifier is not a bearer token.
+- New request summaries MUST remain bounded explicit business fields or deterministic event-derived descriptions. They MUST NOT store private chain-of-thought or copy transcripts into summaries/audit records. Authorized recent message display remains separate from summary generation.
+- Linked Cases MUST remain accessible without becoming duplicate Inbox work. Existing escalation Case return values and duplicate resistance MUST be preserved. Request attention resolution MUST NOT implicitly resolve a Case, conversation or request lifecycle.
+- Acknowledgment MUST NOT imply exclusive permissions, model cancellation or channel pause/resume. Current org members may resolve attention; replacing another member's acknowledgment is rejected.
+- New work audit records MUST contain only the tenant, entity reference, action, verified actor identifier and timestamp. Do not interpret this as full historical audit coverage of legacy Case mutations.

@@ -8,16 +8,14 @@ import {
   createTenantBooking,
   rescheduleTenantBooking,
 } from "./bookings";
-import {
-  createTenantCase,
-  getOpenHumanEscalationCase,
-} from "./cases";
+import { createTenantCase, getOpenHumanEscalationCase } from "./cases";
 import {
   getAvailableConversation,
   recordConversationActivity,
 } from "./conversations";
 import { searchActiveKnowledge } from "./knowledge";
 import { listActiveTenantServices } from "./services";
+import { requestForConversation, requestAttention } from "./serviceRequests";
 import { requireCurrentTenant } from "./tenant";
 import { APPROVED_TOOL_DEFINITIONS } from "./toolRegistry";
 
@@ -92,7 +90,10 @@ const writeToolRequest = v.union(
   }),
   v.object({
     toolName: v.literal("human.escalate"),
-    args: v.object({ conversationId: v.id("conversations"), reason: v.string() }),
+    args: v.object({
+      conversationId: v.id("conversations"),
+      reason: v.string(),
+    }),
   }),
 );
 
@@ -129,7 +130,10 @@ function toolFailure(error: unknown) {
     sourceMessage.includes("is not open") ||
     sourceMessage.includes("is not resolved")
   ) {
-    return failure("already_done", "The requested action is no longer available.");
+    return failure(
+      "already_done",
+      "The requested action is no longer available.",
+    );
   }
   if (
     sourceMessage.includes("unavailable") ||
@@ -137,7 +141,10 @@ function toolFailure(error: unknown) {
   ) {
     return failure("unavailable", "The requested resource is unavailable.");
   }
-  return failure("validation_error", "The tool request could not be completed.");
+  return failure(
+    "validation_error",
+    "The tool request could not be completed.",
+  );
 }
 
 function boundedLimit(value: number | undefined): number {
@@ -148,7 +155,11 @@ function boundedLimit(value: number | undefined): number {
   return value;
 }
 
-function requiredToolText(value: string, field: string, maximumLength: number): string {
+function requiredToolText(
+  value: string,
+  field: string,
+  maximumLength: number,
+): string {
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > maximumLength) {
     throw new Error(`${field} is invalid`);
@@ -268,7 +279,9 @@ export const executeRead = query({
           return success({ entries });
         }
         case "customer.find":
-          return success({ customers: await findCustomers(ctx, args.request.args) });
+          return success({
+            customers: await findCustomers(ctx, args.request.args),
+          });
         case "service.list": {
           const services = await listActiveTenantServices(ctx);
           return success({
@@ -317,13 +330,21 @@ export const executeWrite = mutation({
             ctx,
             args.request.args.conversationId,
           );
-          ensureConversationCustomer(conversation, args.request.args.customerId);
+          ensureConversationCustomer(
+            conversation,
+            args.request.args.customerId,
+          );
           const bookingId = await createTenantBooking(ctx, args.request.args);
           if (conversation !== null) {
-            await recordConversationActivity(ctx, conversation, "booking_created", {
-              entityType: "booking",
-              entityId: bookingId,
-            });
+            await recordConversationActivity(
+              ctx,
+              conversation,
+              "booking_created",
+              {
+                entityType: "booking",
+                entityId: bookingId,
+              },
+            );
           }
           return success({
             bookingId,
@@ -337,12 +358,20 @@ export const executeWrite = mutation({
             ctx,
             args.request.args.conversationId,
           );
-          const bookingId = await rescheduleTenantBooking(ctx, args.request.args);
+          const bookingId = await rescheduleTenantBooking(
+            ctx,
+            args.request.args,
+          );
           if (conversation !== null) {
-            await recordConversationActivity(ctx, conversation, "booking_rescheduled", {
-              entityType: "booking",
-              entityId: bookingId,
-            });
+            await recordConversationActivity(
+              ctx,
+              conversation,
+              "booking_rescheduled",
+              {
+                entityType: "booking",
+                entityId: bookingId,
+              },
+            );
           }
           return success({
             bookingId,
@@ -356,12 +385,20 @@ export const executeWrite = mutation({
             ctx,
             args.request.args.conversationId,
           );
-          const bookingId = await cancelTenantBooking(ctx, args.request.args.bookingId);
+          const bookingId = await cancelTenantBooking(
+            ctx,
+            args.request.args.bookingId,
+          );
           if (conversation !== null) {
-            await recordConversationActivity(ctx, conversation, "booking_cancelled", {
-              entityType: "booking",
-              entityId: bookingId,
-            });
+            await recordConversationActivity(
+              ctx,
+              conversation,
+              "booking_cancelled",
+              {
+                entityType: "booking",
+                entityId: bookingId,
+              },
+            );
           }
           return success({ bookingId, status: "cancelled" as const });
         }
@@ -374,13 +411,36 @@ export const executeWrite = mutation({
             ctx,
             args.request.args.conversationId,
           );
-          if (conversation === null) throw new Error("Conversation is unavailable");
+          if (conversation === null)
+            throw new Error("Conversation is unavailable");
+          const reason = requiredToolText(
+            args.request.args.reason,
+            "Escalation reason",
+            2_000,
+          );
+          const request = await requestForConversation(
+            ctx,
+            conversation._id,
+            conversation.organizationId,
+          );
           const existingCase = await getOpenHumanEscalationCase(
             ctx,
             conversation._id,
             conversation.organizationId,
           );
           if (existingCase !== null) {
+            if (
+              request &&
+              existingCase.serviceRequestId &&
+              existingCase.serviceRequestId !== request._id
+            )
+              throw new Error("Escalation context is unavailable");
+            if (request) {
+              await requestAttention(ctx, request, reason);
+              await ctx.db.patch(existingCase._id, {
+                serviceRequestId: request._id,
+              });
+            }
             return success({
               caseId: existingCase._id,
               status: existingCase.status,

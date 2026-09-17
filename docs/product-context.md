@@ -1,6 +1,6 @@
 # AI Service Desk — product context
 
-Baseline: 2026-09-16; implemented state is local `main` at `a0aeb0a` (Milestone 8). “CURRENT” means present in that code, not production readiness. “PLANNED” is a product decision or future direction, not an existing feature.
+Updated: 2026-09-17 for Milestone 9, built from `main` at `b8a492c`. “CURRENT” describes this milestone branch, not production readiness. “PLANNED” is a product decision or future direction, not an existing feature.
 
 ## Product and market
 
@@ -19,24 +19,24 @@ The product should reduce missed customer contacts and staff workload while maki
 | Customers | CURRENT: tenant-owned people or business customers, optional contact details. |
 | Services | CURRENT: structured offerings, optional duration, explicit pricing. |
 | Conversation | CURRENT: channel-agnostic interaction history, with messages and activity events. |
-| Service Request | PLANNED: primary work object representing what the customer wants done, from intake through estimate/assessment/booking/quote/work/completion. No current implementation. |
+| Service Request | CURRENT: minimal primary work object with structured wants/known/missing summary, lifecycle, attention and next action, plus optional customer/service/conversation/booking links. Full intake-to-quote workflow remains PLANNED. |
 | Case | CURRENT backend; secondary product role: exception/support/attention object for matters outside the Service Request flow or internal follow-up. |
-| Inbox | PLANNED: unified operator work surface, primarily Service Requests needing attention/next action, plus genuine Cases/exceptions. |
+| Inbox | CURRENT: Swedish attention queue and detail view centered on Service Requests, plus unlinked Cases; acknowledgment, attention resolution and deterministic handoff context. |
 | Knowledge | CURRENT: tenant-owned FAQ/policy text and search; structured Services remain the pricing source. |
 | Bookings | CURRENT: internal bookings and basic conflict checks. Resources, calendar UX and external providers are PLANNED. |
 | Workflows | PLANNED: general event/trigger/action behavior; no workflow engine exists. |
 | AI Configuration | PLANNED: tenant language, tone, enabled tools, autonomy and handoff policies; current orchestrator uses a fixed server instruction. |
 | Integrations | PLANNED: business-system and channel adapters; no production channel integration exists on main. |
 
-## Service Request principle — PLANNED
+## Service Request principle — minimal core CURRENT; full flow PLANNED
 
 Minimize administration: keep the same Service Request from the first customer need through completion. Do not require a job to bounce Conversation -> Case -> Service Request -> Booking. Conversations retain interaction history; bookings represent appointments associated with the work.
 
-Typical flow: customer contact -> AI creates/links Service Request -> structured intake and known/missing information -> safe known price or preliminary estimate when allowed -> required checks/assessment -> assessment booking if appropriate -> business inspects and updates the Service Request -> quote if needed -> customer accepts -> work is scheduled -> completed. An assessment appointment can be a site visit, consultation, diagnostic, measurement or inspection, free or paid depending on the service.
+Planned end-to-end flow: customer contact -> AI creates/links Service Request -> structured intake and known/missing information -> safe known price or preliminary estimate when allowed -> required checks/assessment -> assessment booking if appropriate -> business inspects and updates the Service Request -> quote if needed -> customer accepts -> work is scheduled -> completed. An assessment appointment can be a site visit, consultation, diagnostic, measurement or inspection, free or paid depending on the service.
 
 The planned core holds service/template-specific intake answers, known vs missing information, required checks/inspection requirements, attention state/reason and next action. Illustrative actions include `ASK_CUSTOMER`, `BOOK_ASSESSMENT`, `HUMAN_REVIEW`, `SEND_ESTIMATE`, `CREATE_QUOTE` and `WAIT`; these are not finalized API enums. Keep the MVP lifecycle simple, not a giant workflow engine. Future industry templates supply fields such as vehicle details, room size or electrical panel information without industry-specific columns in the general core.
 
-Human attention does not require a separate Case: preserve the same Service Request wherever possible. Cases remain secondary for complaints, invoice disputes, requests to speak to an owner/staff, unrelated support or true exceptions; the existing Case backend remains valid. If a Case becomes a service job, link/convert/continue into a Service Request while preserving context, rather than closing context and duplicating administration. This is product direction, not an implemented conversion feature.
+Human attention does not require a separate Case: preserve the same Service Request wherever possible. Cases remain secondary for complaints, invoice disputes, requests to speak to an owner/staff, unrelated support or true exceptions; the existing Case backend remains valid. If a Case becomes a service job, link/convert/continue into a Service Request while preserving context, rather than closing context and duplicating administration. M9 supports explicit Case links and carries an existing open escalation into a request created from its conversation. This is not a full conversion engine.
 
 Pricing terms are distinct:
 
@@ -44,12 +44,12 @@ Pricing terms are distinct:
 - **Estimate:** preliminary amount/range based on current information and stated assumptions, clearly non-final.
 - **Quote:** formal offer/business document, potentially requiring human approval. AI must not silently turn an estimate into a binding quote.
 
-Estimate/Quote handling and the Service Request concepts above are PLANNED, not current features.
+Estimate/Quote handling, structured intake templates and Required Checks remain PLANNED. M9 implements only the generic request/attention foundation; staff create and update requests, while the existing escalation tool updates attention through its conversation link.
 
-## Product UX direction — PLANNED
+## Product UX direction — M9 foundation CURRENT; broader UX PLANNED
 
 - Make daily operation simple for nontechnical owners and staff. Use progressive complexity: useful defaults first, advanced configuration only when needed. Desktop-first with responsive layouts.
-- Use one Inbox across channels as an exception/next-action work surface, not merely a chronological message list. Prioritize Service Requests needing attention plus genuine Cases/exceptions, retaining related conversation, customer and booking context. Resolved AI-handled conversations remain accessible without dominating the queue. Existing consoles are development surfaces, not this finished experience.
+- Use one Inbox across channels as an exception/next-action work surface, not merely a chronological message list. Prioritize Service Requests needing attention plus genuine Cases/exceptions, retaining related conversation, customer and booking context. Resolved AI-handled conversations remain accessible without dominating the queue. The Inbox is now the default authenticated work surface. Existing development consoles remain accessible under a collapsed administration section.
 - Give staff a concise AI handoff summary: what the customer wants, what AI collected/did, missing information/checks, preliminary price/estimate when allowed, why human attention is needed and the recommended next action. Preserve the same Service Request through handoff where possible.
 - Make booking feel like a calendar: day/week views, understandable appointments and eventually resource columns. Do not expose database IDs or raw timestamps as the workflow.
 - Explain AI activity in everyday language: “Checked availability” and “Created booking,” with traceable outcomes. Do not show raw tool arguments or prompts.
@@ -80,3 +80,11 @@ Use isolated branches for experiments. The voice spike is not a dependency of ma
 Reconciled against the AI Service Desk Project conversation **Välj rätt kontostrategi** (`6aa7a4b2-d9a8-83ed-bfac-771af2792903`, full paginated history), its attached tutorial/reference material, and this repository's code/history. Later explicit project decisions supersede earlier proposals: risk-first roadmap, Stripe direct, a shared custom AI brain, and the post-review decision that Service Request is the primary work object with Cases secondary. The synced Project `sources/` directory was empty at review.
 
 This repository began independently with Create Next App (`bd12e3b`). The earlier AI Receptionist tutorial/demo is reference material only; the project decision is independent implementation, not copying that demo's code, UI, prompts or configuration into this product.
+
+## M9 operator semantics and limits
+
+“Jag tar hand om detta” records the verified staff identity; it is not an exclusive permission grant or a live AI pause. Any current tenant member can resolve attention, while acknowledgment cannot silently replace a colleague. Resolving request attention leaves the conversation, request lifecycle and linked Cases unchanged. A standalone Case is resolved by its Inbox action. Repeated escalation can request attention again and preserves an existing acknowledgment.
+
+New requests begin with attention requested for staff assessment. Lifecycle is `new`, `active`, `scheduled`, `completed`, `cancelled`; attention and next action are separate. Scheduling requires a matching confirmed booking; closing requires resolved attention, and reopening a terminal request goes through `active`. Booking lifecycle changes are not automatically synchronized to request lifecycle.
+
+The existing Tailwind UI is retained for this incremental milestone; installing shadcn and the broader design-system foundation remain deferred. This is an authenticated staff MVP, not a production channel launch.

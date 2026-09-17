@@ -1,11 +1,8 @@
 "use client";
 
-import {
-  OrganizationSwitcher,
-  SignInButton,
-  UserButton,
-} from "@clerk/nextjs";
+import { OrganizationSwitcher, SignInButton, UserButton } from "@clerk/nextjs";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { Inbox } from "../components/inbox";
 import { CoreDataConsole } from "../components/core-data-console";
 
 export default function Home() {
@@ -19,7 +16,7 @@ export default function Home() {
                 AI Service Desk
               </p>
               <h1 className="mt-1 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-                Your workspace is ready
+                Din arbetsyta
               </h1>
             </div>
             <div className="flex items-center gap-4">
@@ -27,7 +24,13 @@ export default function Home() {
               <UserButton />
             </div>
           </div>
-          <CoreDataConsole />
+          <Inbox />
+          <details className="mt-10 border-t border-zinc-200 pt-5">
+            <summary className="cursor-pointer text-sm text-zinc-500">
+              Administration och befintliga utvecklingsvyer
+            </summary>
+            <CoreDataConsole />
+          </details>
         </div>
       </Authenticated>
       <Unauthenticated>

@@ -1,5 +1,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  requestStatus,
+  attentionState,
+  nextAction,
+  requestSummary,
+} from "./workValidators";
 
 /**
  * The tenant foundation for the platform. Domain-specific records belong to
@@ -212,7 +218,56 @@ export default defineSchema({
     "createdAt",
   ]),
 
+  serviceRequests: defineTable({
+    organizationId: v.id("organizations"),
+    customerId: v.optional(v.id("customers")),
+    serviceId: v.optional(v.id("services")),
+    // Initial context only; additional conversations can be related later.
+    initialConversationId: v.optional(v.id("conversations")),
+    bookingId: v.optional(v.id("bookings")),
+    title: v.string(),
+    summary: requestSummary,
+    status: requestStatus,
+    attention: attentionState,
+    attentionReason: v.optional(v.string()),
+    nextAction,
+    acknowledgedBy: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
+    .index("by_organizationId_and_attention_and_updatedAt", [
+      "organizationId",
+      "attention",
+      "updatedAt",
+    ])
+    .index("by_organizationId_and_initialConversationId", [
+      "organizationId",
+      "initialConversationId",
+    ]),
+
+  workEvents: defineTable({
+    organizationId: v.id("organizations"),
+    target: v.union(v.id("serviceRequests"), v.id("cases")),
+    action: v.union(
+      v.literal("created"),
+      v.literal("updated"),
+      v.literal("linked"),
+      v.literal("requested"),
+      v.literal("acknowledged"),
+      v.literal("resolved"),
+    ),
+    actor: v.string(), // Verified tokenIdentifier, never an access token.
+    createdAt: v.number(),
+  }).index("by_organizationId_and_target_and_createdAt", [
+    "organizationId",
+    "target",
+    "createdAt",
+  ]),
+
   cases: defineTable({
+    serviceRequestId: v.optional(v.id("serviceRequests")),
+    acknowledgedBy: v.optional(v.string()),
     organizationId: v.id("organizations"),
     conversationId: v.optional(v.id("conversations")),
     customerId: v.optional(v.id("customers")),
@@ -243,11 +298,16 @@ export default defineSchema({
       "conversationId",
       "updatedAt",
     ])
+    .index("by_organizationId_and_serviceRequestId_and_status_and_updatedAt", [
+      "organizationId",
+      "serviceRequestId",
+      "status",
+      "updatedAt",
+    ])
     .index("by_organizationId_and_conversationId_and_source_and_status", [
       "organizationId",
       "conversationId",
       "source",
       "status",
     ]),
-
 });

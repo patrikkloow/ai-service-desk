@@ -7,6 +7,11 @@ import {
   recordConversationActivity,
   type ConversationActivityType,
 } from "./conversations";
+import {
+  requestForConversation,
+  requestAttention,
+  owned,
+} from "./serviceRequests";
 import { requireCurrentTenant } from "./tenant";
 
 const caseStatus = v.union(v.literal("open"), v.literal("resolved"));
@@ -29,10 +34,15 @@ export type CreateTenantCaseArgs = {
   conversationActivityType?: ConversationActivityType;
 };
 
-function requiredText(value: string, field: string, maximumLength: number): string {
+function requiredText(
+  value: string,
+  field: string,
+  maximumLength: number,
+): string {
   const normalized = value.trim();
   if (normalized.length === 0) throw new Error(`${field} is required`);
-  if (normalized.length > maximumLength) throw new Error(`${field} is too long`);
+  if (normalized.length > maximumLength)
+    throw new Error(`${field} is too long`);
   return normalized;
 }
 
@@ -44,7 +54,8 @@ function optionalText(
   if (value === null || value === undefined) return undefined;
   const normalized = value.trim();
   if (normalized.length === 0) return undefined;
-  if (normalized.length > maximumLength) throw new Error(`${field} is too long`);
+  if (normalized.length > maximumLength)
+    throw new Error(`${field} is too long`);
   return normalized;
 }
 
@@ -54,7 +65,10 @@ async function getAvailableCase(
 ) {
   const tenant = await requireCurrentTenant(ctx);
   const caseRecord = await ctx.db.get(caseId);
-  if (caseRecord === null || caseRecord.organizationId !== tenant.organization._id) {
+  if (
+    caseRecord === null ||
+    caseRecord.organizationId !== tenant.organization._id
+  ) {
     return null;
   }
   return caseRecord;
@@ -78,6 +92,8 @@ function openCaseDocument(
 ) {
   return {
     organizationId: caseRecord.organizationId,
+    serviceRequestId: caseRecord.serviceRequestId,
+    acknowledgedBy: caseRecord.acknowledgedBy,
     ...(caseRecord.conversationId !== undefined
       ? { conversationId: caseRecord.conversationId }
       : {}),
@@ -124,11 +140,21 @@ export async function createTenantCase(
     throw new Error("Case customer must match the linked conversation");
   }
 
+  const request = conversation
+    ? await requestForConversation(
+        ctx,
+        conversation._id,
+        tenant.organization._id,
+      )
+    : null;
   const customerId = args.customerId ?? conversation?.customerId;
+  if (request?.customerId && customerId && request.customerId !== customerId)
+    throw new Error("Case customer must match request");
   const description = optionalText(args.description, "Description", 20_000);
   const now = Date.now();
   const caseId = await ctx.db.insert("cases", {
     organizationId: tenant.organization._id,
+    ...(request ? { serviceRequestId: request._id } : {}),
     ...(conversation !== null ? { conversationId: conversation._id } : {}),
     ...(customerId !== undefined ? { customerId } : {}),
     title: requiredText(args.title, "Title", 300),
@@ -147,6 +173,14 @@ export async function createTenantCase(
       { entityType: "case", entityId: caseId },
     );
   }
+  if (request)
+    await requestAttention(
+      ctx,
+      request,
+      args.source === "human_escalation"
+        ? (description ?? "Mänsklig hjälp efterfrågas")
+        : "Nytt uppföljningsärende att granska",
+    );
   return caseId;
 }
 
@@ -157,12 +191,14 @@ export async function getOpenHumanEscalationCase(
 ) {
   return await ctx.db
     .query("cases")
-    .withIndex("by_organizationId_and_conversationId_and_source_and_status", (q) =>
-      q
-        .eq("organizationId", organizationId)
-        .eq("conversationId", conversationId)
-        .eq("source", "human_escalation")
-        .eq("status", "open"),
+    .withIndex(
+      "by_organizationId_and_conversationId_and_source_and_status",
+      (q) =>
+        q
+          .eq("organizationId", organizationId)
+          .eq("conversationId", conversationId)
+          .eq("source", "human_escalation")
+          .eq("status", "open"),
     )
     .unique();
 }
@@ -197,7 +233,10 @@ export const listForCustomer = query({
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenant(ctx);
     const customer = await ctx.db.get(args.customerId);
-    if (customer === null || customer.organizationId !== tenant.organization._id) {
+    if (
+      customer === null ||
+      customer.organizationId !== tenant.organization._id
+    ) {
       return [];
     }
     return await ctx.db
@@ -215,7 +254,10 @@ export const listForCustomer = query({
 export const listForConversation = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) return [];
     return await ctx.db
       .query("cases")
@@ -268,6 +310,8 @@ export const update = mutation({
         : optionalText(args.description, "Description", 20_000);
     await ctx.db.replace("cases", caseRecord._id, {
       organizationId: caseRecord.organizationId,
+      serviceRequestId: caseRecord.serviceRequestId,
+      acknowledgedBy: caseRecord.acknowledgedBy,
       ...(caseRecord.conversationId !== undefined
         ? { conversationId: caseRecord.conversationId }
         : {}),
@@ -301,6 +345,7 @@ export const resolve = mutation({
     await ctx.db.patch("cases", caseRecord._id, {
       status: "resolved",
       resolvedAt: now,
+      acknowledgedBy: undefined,
       updatedAt: now,
     });
   },
@@ -311,7 +356,20 @@ export const reopen = mutation({
   handler: async (ctx, args) => {
     const caseRecord = await getAvailableCase(ctx, args.caseId);
     if (caseRecord === null) throw new Error("Case is unavailable");
-    if (caseRecord.status !== "resolved") throw new Error("Case is not resolved");
+    if (caseRecord.status !== "resolved")
+      throw new Error("Case is not resolved");
+    if (caseRecord.serviceRequestId) {
+      const request = await owned(
+        ctx,
+        caseRecord.serviceRequestId,
+        caseRecord.organizationId,
+      );
+      await requestAttention(
+        ctx,
+        request,
+        "Uppföljningsärendet har öppnats igen",
+      );
+    }
     await ctx.db.replace(
       "cases",
       caseRecord._id,
