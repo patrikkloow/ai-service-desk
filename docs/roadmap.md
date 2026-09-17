@@ -1,8 +1,8 @@
 # Risk-first roadmap
 
-Updated: 2026-09-17 for Milestone 9, based on main `b8a492c`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
+Updated: 2026-09-17 for Milestone 10, based on main `96212a0`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
 
-## CURRENT — completed milestones 1–9
+## CURRENT — completed milestones 1–10
 
 | Milestone | Completed scope | Important Git checkpoint(s) |
 | --- | --- | --- |
@@ -15,8 +15,9 @@ Updated: 2026-09-17 for Milestone 9, based on main `b8a492c`. Status describes r
 | 7 — Secure Tool Layer | Explicit read/write registry, validated domain operations, escalation | `d07fbef` — Add secure AI tool action layer |
 | 8 — AI Orchestrator v1 | Provider-neutral boundary, bounded context/tool loop, deterministic fake model | `a0aeb0a` — Add secure AI orchestrator |
 | 9 — Human Handoff + Inbox | Minimal generic Service Requests, attention/next action, verified acknowledgment, deterministic summaries, Swedish Inbox and compatible escalation/Case linking | `milestone-9/handoff-inbox` — milestone checkpoint |
+| 10 — Live LLM + evaluation suite | OpenAI Responses adapter; server-only fake/live configuration; terminal writes and deterministic action confirmations; evidence-backed Swedish response templates; offline evals, optional live smoke and PII-safe run metadata | `milestone-10/live-llm-evals` — milestone checkpoint |
 
-Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. No live LLM, production channels, full dashboard, Resources, billing or automotive layer is implied by completion.
+Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. M10 adds a live LLM adapter, but no production channels, full dashboard, Resources, billing or automotive layer is implied by completion.
 
 ## CURRENT — focused UX shell after M9
 
@@ -32,7 +33,6 @@ Before considering production reuse: measure speech-end to audible response with
 
 | Milestone | Outcome |
 | --- | --- |
-| 10 — Live LLM + evaluation suite | Server-side live provider adapter alongside deterministic fakes; realistic scenario suite for grounding, tools, injection attempts, failures and escalation, including required hardening/evaluation of final success claims against tool results. Resolve policy prerequisites before enabling autonomous customer-facing writes. |
 | 11 — Business Configuration + AI Policies | Per-tenant language/tone, opening hours, booking/handoff rules, enabled tools and enforced autonomy/confirmation policies. |
 | 12 — Channel Foundation + Channel Sessions | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history. |
 | 13 — Webchat | First production customer channel through the shared orchestrator and secure tools. |
@@ -48,7 +48,9 @@ Milestone 9 is complete for the scoped authenticated staff foundation. It delibe
 
 Deferred: structured intake templates, Required Checks, Estimate/Quote models, Resources, multiple appointments/conversations per request, full pagination, broader onboarding/dashboard work, and automatic booking/request lifecycle synchronization. Inbox limits and operator semantics are documented in [architecture.md](architecture.md). Live authenticated browser acceptance and production deployment are separate from local deterministic tests/build verification.
 
-**Next: Milestone 10 — Live LLM + evaluation suite**, preserving the policy prerequisites and success-claim hardening requirements in that milestone.
+**M10 COMPLETE for the scoped implementation.** Offline evaluations and deterministic security tests are implemented; the optional real-provider smoke is unverified because no key was available. Template-based answers trade expressiveness for enforceable grounding; live language/intent quality is not established by scripted tests. See [architecture.md](architecture.md) for commands and limits.
+
+**Next: Milestone 11 — Business Configuration + AI Policies.** Enforce consent/autonomy prerequisites before customer-facing writes. M10 does not add external-customer target-record authorization or a production channel.
 
 General workflows remain planned; do not turn Milestone 9 into an unlimited workflow-builder project without a scope decision. Pilot discovery and commercial validation should happen throughout, even though the integrated Pilot is listed last. Later milestones may move when evidence justifies it; document changes explicitly.
 
@@ -56,8 +58,8 @@ General workflows remain planned; do not turn Milestone 9 into an unlimited work
 
 - Move local Node 23.4.0 to the project's planned Node 22 LTS target with compatibility checks.
 - Validate production hosting, especially the persistent voice WebSocket path; Vercel is intended, not a proven deployment.
-- Add PII-safe latency/outcome/cost observability as integrations arrive.
+- Extend M10 PII-safe timing/outcome metadata with durable tracing, retention and optional cost accounting as needed.
 - Define durable write idempotency and customer identity verification for external channels; current within-turn retry protection is insufficient for network retries across sessions.
-- Keep pricing, exact plan bundles, live LLM choice, external booking providers and voice acceptance thresholds open until evaluated.
+- Keep pricing, exact plan bundles, live model tuning, external booking providers and voice acceptance thresholds open until evaluated.
 
 Each milestone should end with a reviewed diff, relevant checks and a clear Git checkpoint. Keep experiments isolated; never infer permission to merge from a completed milestone.

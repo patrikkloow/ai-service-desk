@@ -31,11 +31,29 @@ export type ModelGenerationInput = {
 };
 
 /** Model adapters return data only; they cannot access Convex or execute tools. */
+export type Finalization = {
+  kind:
+    | "unknown"
+    | "clarify_service"
+    | "clarify_time"
+    | "clarify_customer"
+    | "knowledge"
+    | "services"
+    | "availability"
+    | "development";
+  resultIndex?: number;
+};
+
 export type ModelOutput =
-  | { kind: "final"; content: string }
+  | { kind: "final"; content: string; finalization?: Finalization }
   | { kind: "tool_request"; toolName: string; args: unknown };
 
 export interface ModelAdapter {
+  readonly metadata?: {
+    provider: string;
+    model: string;
+    mode: "fake" | "live";
+  };
   generate(input: ModelGenerationInput): Promise<ModelOutput>;
 }
 
@@ -44,9 +62,15 @@ export interface ModelAdapter {
  * model and never claims to have consulted business data or performed action.
  */
 export class DevelopmentFakeModelAdapter implements ModelAdapter {
+  readonly metadata = {
+    provider: "development_fake",
+    model: "deterministic",
+    mode: "fake" as const,
+  };
   async generate(): Promise<ModelOutput> {
     return {
       kind: "final",
+      finalization: { kind: "development" },
       content:
         "Development fake AI is active. A live model provider has not been configured.",
     };
@@ -57,9 +81,7 @@ export class DevelopmentFakeModelAdapter implements ModelAdapter {
 export class ScriptedFakeModelAdapter implements ModelAdapter {
   private position = 0;
 
-  constructor(
-    private readonly script: Array<ModelOutput | Error>,
-  ) {}
+  constructor(private readonly script: Array<ModelOutput | Error>) {}
 
   async generate(): Promise<ModelOutput> {
     const next = this.script[this.position];

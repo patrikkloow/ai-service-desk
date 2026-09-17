@@ -1,6 +1,6 @@
 # Architecture
 
-Updated: 2026-09-17, Milestone 9 built from `main` at `b8a492c`. Product direction and source basis: [product-context.md](product-context.md). Mandatory rules: [security-invariants.md](security-invariants.md).
+Updated: 2026-09-17, Milestone 10 built from `main` at `96212a0`. Product direction and source basis: [product-context.md](product-context.md). Mandatory rules: [security-invariants.md](security-invariants.md).
 
 ## CURRENT — stack and ownership
 
@@ -12,7 +12,7 @@ Clerk is the source of truth for identity, organizations, memberships and roles.
 
 Tenant-scoped reads and mutations use this server context, tenant-first queries and record-ownership checks. Client-side org selection is only a readiness/UI signal. Domain IDs supplied by callers must still be checked against the derived tenant, including linked records.
 
-## CURRENT — implemented domains through Milestone 9
+## CURRENT — implemented domains through Milestone 10
 
 | Area | Implementation and limits |
 | --- | --- |
@@ -24,7 +24,7 @@ Tenant-scoped reads and mutations use this server context, tenant-first queries 
 | Tool Layer | `toolRegistry.ts`, `tools.ts`: explicit registry, separate read query/write mutation paths, strict input validators and named domain operations. |
 | AI Orchestrator v1 | `orchestrator.ts`, `orchestratorCore.ts`, `orchestratorInternal.ts`, `modelAdapter.ts`: authenticated text turns, bounded context/tool loop and server-written AI responses. |
 
-Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives. Existing customer/service, knowledge and booking components remain simple management surfaces on dedicated routes. Raw conversations/Cases, Tool Console and fake orchestrator are isolated at `/dev`, checked server-side for development mode and Clerk sign-in; they are not linked from operator navigation. A channel enum (`web`, `sms`, `phone`, `email`, `other`) does not mean those external channels are connected. Current functions run in a signed-in Clerk organization context; public/customer channel authentication is future work.
+Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives. Existing customer/service, knowledge and booking components remain simple management surfaces on dedicated routes. Raw conversations/Cases, Tool Console and configurable orchestrator are isolated at `/dev`, checked server-side for development mode and Clerk sign-in; they are not linked from operator navigation. A channel enum (`web`, `sms`, `phone`, `email`, `other`) does not mean those external channels are connected. Current functions run in a signed-in Clerk organization context; public/customer channel authentication is future work.
 
 ## CURRENT — AI execution boundary
 
@@ -34,15 +34,15 @@ Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives
 - Write tools: `booking.create`, `booking.reschedule`, `booking.cancel`, `case.create`, `human.escalate`.
 - Model adapters return data, never execute database calls. The server strictly parses model tool arguments and attaches the current conversation context; model-supplied authority/context overrides are rejected.
 - Context: at most 12 messages, each capped at 4,000 characters. Incoming customer text and final AI text are also capped at 4,000. Tool loop permits at most five tool attempts, with a final model response opportunity.
-- The public action uses `DevelopmentFakeModelAdapter`, which returns a clearly labeled fixed development response. `ScriptedFakeModelAdapter` exercises tool behavior in deterministic tests. **No live LLM is configured.**
-- The same uncertain write request is blocked from retry within a turn. This is not durable or cross-turn idempotency. Ordinary booking/case creation has no general idempotency key; escalation has open-case duplicate resistance.
+- The public action selects `DevelopmentFakeModelAdapter` by default or an explicitly configured `OpenAIModelAdapter`. `ScriptedFakeModelAdapter` remains the offline test/evaluation path. The model abstraction remains provider-neutral; only the OpenAI adapter contains provider wire formats.
+- Every write execution is terminal for the turn. The server composes a successful, failed or uncertain outcome directly; no provider round or second write follows it. This strengthens M8 within-turn retry protection, but is not durable or cross-turn idempotency. Escalation retains open-case duplicate resistance.
 - Tool-linked conversation activity stores event type and safe entity references, not raw arguments or contact data. This is not a complete audit system for every domain write.
 
 Role claims are validated (`org:admin` / `org:member`), but current domains do not implement a fine-grained role permission matrix. Configurable AI confirmation policies and entitlements are also absent. Prompt instructions are guidance, never authorization.
 
 ## CURRENT — limitations
 
-- Final model text is format/length validated, but not generically semantically verified against tool results. Success-claim verification is a required hardening/evaluation target, especially for Milestone 10 live LLM/evals.
+- Arbitrary model prose is not published. Structured finalization selects a server template and a current-turn read result index; the server verifies tool kind and success. Write confirmations require successful server result references/status. This is deliberately narrower than free-form chat: knowledge appears as an attributed excerpt, and no generic semantic verification is claimed. Retrieval relevance, stale facts, intent-to-service/time/record matching and appropriate follow-up selection remain evaluation concerns.
 - Tenant/conversation routing does not prove an external customer is authorized to mutate every booking in the tenant. External channels must enforce customer authorization to the specific target record/action.
 - `human.escalate` creates/reuses an attention item implemented as a follow-up Case; it does not automatically implement takeover/resume or stop all future orchestration. M9 adds operator acknowledgment/resolution and linked request attention, but still does not pause or resume model/channel execution.
 
@@ -79,7 +79,7 @@ ElevenLabs Speech Engine handles STT, TTS, turn-taking and interruptions. Our se
 
 BookingProvider will sit behind the existing tool concepts so internal and external booking systems share authorization and policy rules. General Resources and business hours, buffers, blocked time, holidays and notice rules remain planned. Tenant business/AI configuration and workflow execution remain future components.
 
-Observability should expose safe metadata: channel, stage latency, tool names/outcomes, escalation, provider/model and approximate cost. Separate model/brain, tool, speech-provider and end-to-end timings. Existing activity events and spike timing records are foundations, not a production telemetry/cost system.
+Observability should expose safe metadata: channel, stage latency, tool names/outcomes, escalation, provider/model and approximate cost. Separate model/brain, tool, speech-provider and end-to-end timings. M10 adds safe `ai_run` metadata (below). These records are not a complete tracing, retention or cost system.
 
 ## UNMERGED EXPERIMENT — voice feasibility
 
@@ -92,3 +92,34 @@ Project live-test evidence reports Swedish STT appears good and first text in in
 Voice **`cLAH1kXlkAivJHxCW601`** was reported materially better than the previous voice. Engine **`seng_0901m2kn33mefy6r33rpww3dq0be`** uses **`eleven_flash_v2_5`**, Swedish. The completed “Tune ElevenLabs voice settings” task (`01a0abe6-e403-7131-824e-2d3aad4b4ff5`) reports a verified in-place update to **speed 0.94 / stability 0.65**, preserving other settings. This is a reported remote experiment state, not tracked production configuration or a fresh provider check by this documentation task. Tempo/prosody tuning and representative listening tests remain experimental.
 
 The spike's older statement that no live measurements exist is superseded only by the narrow project observations above. Voice feasibility is promising but still in progress; no production latency/quality acceptance has been established.
+
+## CURRENT — M10 provider, grounding and evaluations
+
+`openaiModelAdapter.ts` calls the OpenAI Responses API using native server `fetch`, strict function schemas and a structured finalization schema. Tool names map to legal wire names and are normalized back through the existing strict domain parser. Unknown names, authority arguments, malformed/missing fields, multiple calls, empty/incomplete responses and oversized bodies fail closed. Stored messages, including historical system messages, are sent as untrusted user-role context; only the fixed server instruction has instruction authority. Reasoning items needed for continuation stay in ephemeral adapter memory and are never exposed to the console or logs.
+
+A fresh adapter belongs to one authenticated turn. It replays function-call IDs/results, uses `store: false`, disables parallel tool calls, caps output at 2,000 tokens and response bodies at 128 KB. Timeout includes receiving/parsing the body; abort plus a deadline controls transport failure. There are **no automatic provider retries**. Max five tool attempts remains; reads can loop, but the first write execution ends the turn. A provider failure cannot occur after a successful write because no further generation is requested. Failure to save the server response reports that an action may already have completed and must be checked before retry.
+
+`groundedResponse.ts` renders all final text. Successful write templates require `ok: true`, a nonempty server entity reference and matching status; failed/uncertain results never receive a success template. Raw model text, fabricated evidence indexes and wrong-kind evidence cannot authorize a success claim. Services use only structured prices; availability requires successful availability evidence. Knowledge text and service labels remain untrusted administrator-authored content and are visibly quoted. Knowledge excerpts are explicitly non-authoritative for prices/actions; relevance and source correctness are not proven by quotation. The interface intentionally limits expressive conversation to these templates pending broader measured reliability; no generic keyword-based hallucination detector is claimed.
+
+### Server configuration
+
+Set configuration in the **Convex backend environment**, not `NEXT_PUBLIC_*` or browser settings. Local `.env.local` is only read by the standalone smoke helper; it does not configure a deployed Convex backend.
+
+| Variable | Behavior |
+| --- | --- |
+| `AI_MODEL_MODE` | Omitted/`fake`: deterministic default. `live`: explicit OpenAI selection. Other values fail closed. |
+| `OPENAI_API_KEY` | Required secret for live mode; never returned, logged or committed. |
+| `OPENAI_MODEL` | Required server-selected supported Responses model; no scattered model default in business logic. Validate the chosen model with the smoke command. |
+| `AI_MODEL_TIMEOUT_MS` | Optional integer 1,000–60,000 ms; default 20,000 ms per provider call. |
+
+The repository's existing `process.env` server configuration pattern is retained; no client-provided override or endpoint exists. Configuration errors return a controlled diagnostic. `runtimeInfo` requires the current tenant and returns only mode/provider/model. The production request validator still accepts only conversation ID and message. `/dev` stays server-gated to authenticated development, displays mode/model before submission, disables duplicate submission while pending and shows safe latency/tool/outcome metadata. Runtime changes require server configuration; there is no browser toggle.
+
+`ai_run` logs/returns provider, configured model, fake/live mode, loop latency, model time/call count, executed tool count/names/outcomes, final outcome, controlled provider failure category when available, and response-persistence status. No prompt, transcript, raw tool arguments/results, entity IDs, credentials or reasoning are included. Existing minimal conversation/work events remain the domain audit trail. No run correlation ID or token/cost persistence was added.
+
+### Repeatable verification
+
+- `npm run eval:ai`: named offline assertions using Vitest, scripted models, mocked provider HTTP responses, and real Convex-test orchestration/domain functions. Synthetic fixtures only. Reports scenario/category pass/fail and totals; no opaque judge score.
+- `npm test -- --silent`: all existing and new regressions. Normal tests explicitly clear provider credentials and select fake mode even if a developer shell inherited live settings.
+- `npm run eval:ai:live`: explicitly opted-in real OpenAI smoke with a synthetic Swedish pricing question and read-only fixture tool implementation. It exercises the adapter/core, not deployed Clerk/Convex integration. It skips with a clear message when no key exists; configure `OPENAI_MODEL` too. No second LLM judge is required.
+
+Offline evaluation covers active tenant knowledge/unknown facts, fixed/from/missing prices and conflicting knowledge, availability/back-to-back intervals, booking success/conflict/uncertainty, reschedule/cancel, repeated handoff and M9 state preservation, injection/authority overrides, malformed calls and loop limits, provider timeout/error/malformed/empty responses, two-tenant isolation and concise Swedish follow-ups. Scripted behavior does not measure real-model intent comprehension; the optional smoke is only a narrow structural acceptance check. Live smoke was not run at this checkpoint: no provider key available.

@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval:ai": "vitest run convex/ai-evals.test.ts convex/openaiModelAdapter.test.ts --reporter=verbose --silent",
+    "eval:ai:live": "node scripts/live-ai-smoke.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.2",

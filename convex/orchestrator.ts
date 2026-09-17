@@ -1,7 +1,9 @@
+import { requireCurrentTenant } from "./tenant";
+import { createRuntimeAdapter } from "./modelRuntime";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
-import { action } from "./_generated/server";
+import { action, query } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import {
   MAX_CUSTOMER_MESSAGE_CHARS,
@@ -10,10 +12,7 @@ import {
   type OrchestrationResult,
   type ToolExecution,
 } from "./orchestratorCore";
-import {
-  DevelopmentFakeModelAdapter,
-  type ModelAdapter,
-} from "./modelAdapter";
+import { type ModelAdapter } from "./modelAdapter";
 
 type CustomerTurnArgs = {
   conversationId: Id<"conversations">;
@@ -22,7 +21,8 @@ type CustomerTurnArgs = {
 
 function normalizedCustomerMessage(value: string): string | null {
   const normalized = value.trim();
-  return normalized.length > 0 && normalized.length <= MAX_CUSTOMER_MESSAGE_CHARS
+  return normalized.length > 0 &&
+    normalized.length <= MAX_CUSTOMER_MESSAGE_CHARS
     ? normalized
     : null;
 }
@@ -44,10 +44,13 @@ function unavailableTurnResult(): {
   };
 }
 
-function orchestrationFailure(result: Exclude<OrchestrationResult, { ok: true }>) {
+function orchestrationFailure(
+  result: Exclude<OrchestrationResult, { ok: true }>,
+) {
   return {
     ok: false as const,
-    provider: "development_fake" as const,
+    provider: result.metadata.provider,
+    metadata: result.metadata,
     error: result.error,
     executedTools: result.executedTools,
   };
@@ -81,7 +84,9 @@ async function executeCurrentConversationTool(
                 serviceId: request.args.serviceId as Id<"services">,
                 startTime: request.args.startTime,
                 endTime: request.args.endTime,
-                ...(request.args.notes === undefined ? {} : { notes: request.args.notes }),
+                ...(request.args.notes === undefined
+                  ? {}
+                  : { notes: request.args.notes }),
                 conversationId,
               },
             },
@@ -193,9 +198,12 @@ export async function processCustomerTurn(
 
   let context;
   try {
-    context = await ctx.runQuery(internal.orchestratorInternal.loadConversationContext, {
-      conversationId: args.conversationId,
-    });
+    context = await ctx.runQuery(
+      internal.orchestratorInternal.loadConversationContext,
+      {
+        conversationId: args.conversationId,
+      },
+    );
   } catch {
     return unavailableTurnResult();
   }
@@ -206,7 +214,12 @@ export async function processCustomerTurn(
     executeTool: async (request) =>
       await executeCurrentConversationTool(ctx, args.conversationId, request),
   });
-  if (!result.ok) return orchestrationFailure(result);
+  // Deliberately log only allowlisted timing/outcome metadata, never context or arguments.
+  if (!result.ok) {
+    result.metadata.responsePersistence = "not_attempted";
+    console.info("ai_run", result.metadata);
+    return orchestrationFailure(result);
+  }
 
   try {
     await ctx.runMutation(internal.orchestratorInternal.appendAiResponse, {
@@ -214,20 +227,27 @@ export async function processCustomerTurn(
       content: result.response,
     });
   } catch {
+    result.metadata.responsePersistence = "failed";
+    console.info("ai_run", result.metadata);
     return {
       ok: false as const,
-      provider: "development_fake" as const,
+      provider: result.metadata.provider,
+      metadata: result.metadata,
       error: {
         code: "provider_unavailable" as const,
-        message: "The AI response could not be saved safely.",
+        message:
+          "Svaret kunde inte sparas. En åtgärd kan redan ha genomförts; kontrollera utfallet innan du försöker igen.",
       },
       executedTools: result.executedTools,
     };
   }
 
+  result.metadata.responsePersistence = "saved";
+  console.info("ai_run", result.metadata);
   return {
     ok: true as const,
-    provider: "development_fake" as const,
+    provider: result.metadata.provider,
+    metadata: result.metadata,
     response: result.response,
     executedTools: result.executedTools,
   };
@@ -235,6 +255,47 @@ export async function processCustomerTurn(
 
 export const processCustomerMessage = action({
   args: { conversationId: v.id("conversations"), message: v.string() },
-  handler: async (ctx, args) =>
-    await processCustomerTurn(ctx, args, new DevelopmentFakeModelAdapter()),
+  handler: async (ctx, args) => {
+    // Check tenant/conversation before configuration diagnostics or any paid call.
+    try {
+      await ctx.runQuery(
+        internal.orchestratorInternal.loadConversationContext,
+        { conversationId: args.conversationId },
+      );
+    } catch {
+      return unavailableTurnResult();
+    }
+    let adapter: ModelAdapter;
+    try {
+      adapter = createRuntimeAdapter();
+    } catch {
+      return {
+        ok: false as const,
+        provider: "unavailable",
+        error: {
+          code: "configuration" as const,
+          message:
+            "Live AI configuration is unavailable. Check server mode, model and credentials.",
+        },
+        executedTools: [],
+      };
+    }
+    return await processCustomerTurn(ctx, args, adapter);
+  },
+});
+
+export const runtimeInfo = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireCurrentTenant(ctx);
+    try {
+      return createRuntimeAdapter().metadata!;
+    } catch {
+      return {
+        provider: "unavailable",
+        model: "unavailable",
+        mode: "unavailable",
+      };
+    }
+  },
 });

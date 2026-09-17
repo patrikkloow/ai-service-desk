@@ -1,6 +1,6 @@
 # AI Service Desk — product context
 
-Updated: 2026-09-17 for Milestone 9, built from `main` at `b8a492c`. “CURRENT” describes this milestone branch, not production readiness. “PLANNED” is a product decision or future direction, not an existing feature.
+Updated: 2026-09-17 for Milestone 10, built from `main` at `96212a0`. “CURRENT” describes this milestone branch, not production readiness. “PLANNED” is a product decision or future direction, not an existing feature.
 
 ## Product and market
 
@@ -88,3 +88,13 @@ This repository began independently with Create Next App (`bd12e3b`). The earlie
 New requests begin with attention requested for staff assessment. Lifecycle is `new`, `active`, `scheduled`, `completed`, `cancelled`; attention and next action are separate. Scheduling requires a matching confirmed booking; closing requires resolved attention, and reopening a terminal request goes through `active`. Booking lifecycle changes are not automatically synchronized to request lifecycle.
 
 The UX shell pass adds minimal request creation using existing server defaults, action-first details and collapsed manual editing. Existing customer, service, knowledge and booking management has dedicated routes; the booking list is not the planned full calendar UX. Overview counts explicitly disclose bounded query results. This remains an authenticated staff MVP, not a production channel launch.
+
+## CURRENT — M10 live AI and reliability
+
+One server-side OpenAI adapter is available behind the provider-neutral model interface. Deterministic fake mode remains the default for development/tests. Live mode requires explicit server configuration; no normal operator model controls or production customer channel were added. `/dev` shows the configured mode/model and safe run outcomes; use synthetic data in a test organization because live tools can write real tenant records.
+
+Action confirmations are composed by the server from successful Tool Layer results. A write attempt is terminal within the turn, including failed/uncertain outcomes: no further model call or automatic retry follows it. Unbacked model prose is not published, even without a tool call. This intentionally conservative M10 release uses evidence-backed response templates and short Swedish follow-up questions; knowledge is displayed as an attributed excerpt, not a completed-action confirmation or authoritative service price. Structured Services remain the pricing authority.
+
+`npm run eval:ai` runs offline reliability scenarios across knowledge, prices, availability, writes, handoff, malicious calls, isolation, provider failures and Swedish responses. `npm run eval:ai:live` is an optional synthetic, read-only OpenAI smoke; paid/network calls are not a CI requirement. Offline scripts validate orchestration and server enforcement, not a real model's ability to understand every customer request. Knowledge relevance, selecting the right service/time/record, and overall conversational quality still require live evaluation and staff acceptance.
+
+M10 is complete for this scoped implementation; real-provider smoke is unverified because no local provider key was available. Customer consent/autonomy policies (M11), external-customer target-record authorization, durable idempotency and real channel takeover remain future work. This is not approval to enable autonomous customer-facing writes.
