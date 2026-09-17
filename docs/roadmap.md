@@ -27,8 +27,8 @@ Before considering production reuse: measure speech-end to audible response with
 
 | Milestone | Outcome |
 | --- | --- |
-| 9 — Human Handoff + Inbox | A usable staff queue, conversation/case context, ownership and follow-up lifecycle. Existing escalation is only a backend primitive; define explicit takeover/resume behavior. |
-| 10 — Live LLM + evaluation suite | Server-side live provider adapter alongside deterministic fakes; realistic scenario suite for grounding, tools, injection attempts, failures and escalation. Resolve policy prerequisites before enabling autonomous customer-facing writes. |
+| 9 — Human Handoff + Inbox | Exception/next-action queue centered on Service Requests with attention state/reason, next action and concise AI handoff summaries, plus genuine Cases. Preserve the same work object through handoff, related conversation/booking context, ownership and follow-up. Existing escalation is only a backend primitive; define explicit takeover/resume behavior. |
+| 10 — Live LLM + evaluation suite | Server-side live provider adapter alongside deterministic fakes; realistic scenario suite for grounding, tools, injection attempts, failures and escalation, including required hardening/evaluation of final success claims against tool results. Resolve policy prerequisites before enabling autonomous customer-facing writes. |
 | 11 — Business Configuration + AI Policies | Per-tenant language/tone, opening hours, booking/handoff rules, enabled tools and enforced autonomy/confirmation policies. |
 | 12 — Channel Foundation + Channel Sessions | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history. |
 | 13 — Webchat | First production customer channel through the shared orchestrator and secure tools. |
@@ -39,6 +39,8 @@ Before considering production reuse: measure speech-end to audible response with
 | 18 — Entitlements + Stripe Billing | Own server-enforced capability model and Stripe direct subscription mapping; keep billing identifiers out of domain logic. |
 | 19 — Automotive configuration/layer | Workshop-specific information/workflows above the general core. |
 | Pilot | Validate correct handling/bookings, escalation, staff time saved, error rate, customer acceptance and willingness to pay. Start with observe/draft and progress to safe automation. |
+
+As part of or immediately before Milestone 9, introduce the currently absent **Service Request core**: simple lifecycle, structured intake, known/missing information, required checks, attention/next action and assessment appointment relationships. Follow the Price/Estimate/Quote distinctions in [product-context.md](product-context.md); these are planned concepts, not completed features. Keep Cases secondary and avoid duplicate work objects.
 
 Before or as part of Milestone 9, establish the **UX/design-system foundation**: wireframes for onboarding -> overview -> Inbox/conversation -> booking, shared layouts/forms/statuses, and empty/loading/error states. Use shadcn/ui components with a custom product identity, not a generic template. Reuse existing conventions and avoid unnecessary component-framework migration; shadcn is not yet installed on main.
 

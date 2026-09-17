@@ -39,6 +39,20 @@ UI in `src/components/*-console.tsx` is minimal authenticated runtime tooling. A
 
 Role claims are validated (`org:admin` / `org:member`), but current domains do not implement a fine-grained role permission matrix. Configurable AI confirmation policies and entitlements are also absent. Prompt instructions are guidance, never authorization.
 
+## CURRENT — limitations
+
+- Final model text is format/length validated, but not generically semantically verified against tool results. Success-claim verification is a required hardening/evaluation target, especially for Milestone 10 live LLM/evals.
+- Tenant/conversation routing does not prove an external customer is authorized to mutate every booking in the tenant. External channels must enforce customer authorization to the specific target record/action.
+- `human.escalate` creates/reuses an attention item implemented as a follow-up Case; it does not automatically implement takeover/resume or stop all future orchestration. Human handoff behavior remains Milestone 9 work.
+
+## PLANNED — Service Request core and Inbox
+
+Service Request is the primary work object from intake through assessment/estimate, booking, quote and completion; it is absent from the current schema, tools and UI. Conversations, Cases and Bookings remain CURRENT. See [product-context.md](product-context.md) for terminology and pricing semantics.
+
+Introduce a simple Service Request core as part of or immediately before Milestone 9: template-specific structured intake, known/missing information, required checks, attention state/reason, next action and related assessment/work appointments. Assessments may be free or paid site visits, consultations, diagnostics, measurements or inspections. Price is a structured fact; Estimate is preliminary; Quote is a formal offer. Estimate/Quote handling and these relationships are planned, not existing schema or finalized APIs. Industry-specific fields belong in future templates/layers, not core columns.
+
+The Inbox should prioritize Service Requests needing attention/next action, with a concise handoff summary of intent, collected information/actions, missing information/checks, allowed pricing/estimate, attention reason and recommended next step. Keep resolved AI-handled conversations accessible outside the main work queue. Human handoff should preserve the same Service Request; Cases remain secondary exceptions/internal follow-up. Continuing a Case into a Service Request must preserve context without duplicate administration; no conversion feature exists today. Avoid a general workflow engine for the MVP.
+
 ## PLANNED — channel and provider boundaries
 
 ```text

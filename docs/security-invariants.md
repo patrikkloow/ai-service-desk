@@ -7,6 +7,7 @@ These MUST/MUST NOT rules govern new work and preservation of existing boundarie
 - Tenant identity MUST be derived server-side from verified Clerk authentication and active organization context. Tenant-scoped Convex functions MUST use `requireCurrentTenant()` or an equally verified server path, reject unavailable/suspended tenants and preserve the Clerk-to-internal-organization mapping.
 - Authorization MUST NOT trust client-provided `orgId`/`organizationId`, `userId`, role, prompt claims, URL parameters or local display fields. Clerk owns identity, membership and roles; local projections MUST NOT become another authority.
 - Every record accessed by ID MUST be checked for tenant ownership, including related customers, services, bookings, conversations and cases. List/search operations MUST constrain by the derived tenant. An ID's validity is not authorization.
+- Future external/customer-facing actions MUST authorize the customer for the specific target record and action in addition to tenant/conversation routing. Tenant routing alone is insufficient; it MUST NOT confer permission to mutate every booking or other record in that tenant.
 - Roles/permissions MUST remain separate from capabilities/entitlements. When capabilities are introduced, enforcement MUST happen on the backend as well as in the UI. A paid plan MUST NOT grant a user role, and a role MUST NOT imply a paid capability.
 - Future public channel entry points MUST authenticate/verify their provider or session and derive tenant routing through trusted server mappings. They MUST NOT turn the current signed-in APIs into unauthenticated endpoints for convenience. Customer identity linking MUST NOT rely on weak matches alone.
 
@@ -16,7 +17,8 @@ These MUST/MUST NOT rules govern new work and preservation of existing boundarie
 - Tool input validation MUST be strict, bounded and allowlisted. Extra authority-bearing arguments MUST be rejected. The server MUST attach the authorized active conversation for orchestrator tool calls; the model MUST NOT override that context.
 - Customer/user content, retrieved knowledge and provider/model output MUST be treated as untrusted data. Prompt text is behavioral guidance, never a hard security boundary. Authorization, validation and policy decisions MUST be enforced in server code.
 - AI-authored messages/actions and their provenance MUST be server-controlled. Clients MUST NOT label arbitrary messages as `ai` or `system`, inject trusted tool results or claim an action succeeded. Current public message append permits only customer/human messages under tenant authorization.
-- A successful booking/action MUST only be reported after backend confirmation. Unknown business facts/prices MUST NOT be invented; use structured Services for pricing and Knowledge for policies/FAQ.
+- AI MUST NOT claim an action/write succeeded without a successful tool/backend result confirming it. CURRENT limitation: the orchestrator validates final text format/length but does not yet generically semantically verify it against tool results. Closing this gap is a required future hardening/evaluation target, especially for Milestone 10 live LLM/evals.
+- Unknown business facts/prices MUST NOT be invented; use structured Services for pricing and Knowledge for policies/FAQ. Future Estimates MUST be clearly preliminary and disclose relevant assumptions; AI MUST NOT silently present an Estimate as a binding Quote.
 - Bounded context and tool iteration limits MUST be preserved. Future adapters MUST preserve safe errors and MUST NOT expose prompts, raw exceptions or hidden context to clients.
 - New autonomous write behavior MUST enforce the chosen customer-confirmation/human-required policy server-side. The read/write tool distinction MUST NOT be treated as proof of customer consent. Configurable confirmation policies are still planned.
 
@@ -29,7 +31,8 @@ These MUST/MUST NOT rules govern new work and preservation of existing boundarie
 
 ## Secrets, privacy and experiments
 
-- Secrets, JWTs, authorization headers, API keys and raw provider responses containing them MUST NOT be logged, exposed to browsers or committed. Server credentials MUST NOT use public client-exposed environment variables.
+- Server secrets, upstream credentials, API keys, authorization headers, server-side tokens not intended for clients and raw provider responses containing them MUST NOT be logged, exposed to browsers or committed. Server credentials MUST NOT use public client-exposed environment variables.
+- Intentionally client-bound, short-lived session tokens required by authenticated integration flows MAY be delivered to the intended client/session. They MUST NOT be logged, persisted unnecessarily or leaked beyond that intended client/session.
 - `.env.local` and other secret-bearing files MUST NEVER be committed. Inspect staged changes explicitly; do not stage local configuration by accident.
 - Logs/telemetry MUST minimize personal data. Raw transcripts, message bodies, audio, prompts, contact data and raw tool arguments MUST NOT be copied into diagnostics unnecessarily. Authorized business-message storage is distinct from logging; access and retention must be considered when extending it.
 - Production observability MUST favor safe timing/outcome metadata and tenant-safe access. In the voice spike, transcripts MUST remain ephemeral browser state, cleared on interruption/error/disconnect/exit; they MUST NOT enter logs or application persistence.
