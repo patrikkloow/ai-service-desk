@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes";
 import { Button } from "@/components/ui/button";
 
 const actions = [
@@ -19,34 +20,66 @@ const decisions = [
 type PolicyData = NonNullable<
   ReturnType<typeof useQuery<typeof api.aiPolicy.get>>
 >;
+type PolicyFormValue = Pick<
+  NonNullable<PolicyData["policy"]>,
+  "actions" | "responseLanguage" | "communicationTone"
+>;
+
+function copyPolicy(policy: PolicyFormValue): PolicyFormValue {
+  return { ...policy, actions: { ...policy.actions } };
+}
 
 function PolicyForm({ data }: { data: PolicyData }) {
   const update = useMutation(api.aiPolicy.update);
-  const policy = data.policy!;
-  const [actionsState, setActions] = useState(policy.actions);
-  const [responseLanguage, setLanguage] = useState(policy.responseLanguage);
-  const [communicationTone, setTone] = useState(policy.communicationTone);
-  const [status, setStatus] = useState<string | null>(null);
+  const initial = copyPolicy(data.policy!);
+  const [saved, setSaved] = useState(initial);
+  const [form, setForm] = useState(initial);
+  const [status, setStatus] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved);
+  useUnsavedChangesWarning(data.canEdit && dirty);
+
+  function change(next: PolicyFormValue) {
+    setForm(next);
+    setStatus(null);
+  }
+
+  function reset() {
+    setForm(copyPolicy(saved));
+    setStatus(null);
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (!dirty || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setStatus(null);
     try {
-      await update({
-        actions: actionsState,
-        responseLanguage,
-        communicationTone,
-      });
-      setStatus("AI-inställningarna är sparade.");
+      await update(form);
+      setSaved(copyPolicy(form));
+      setStatus({ kind: "success", text: "Ändringarna är sparade." });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Kunde inte spara.");
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Kunde inte spara.",
+      });
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
+
   return (
-    <form className="max-w-3xl space-y-5" onSubmit={save}>
+    <form
+      className="max-w-3xl space-y-5"
+      data-unsaved={dirty || undefined}
+      onSubmit={save}
+    >
       <section className="rounded-xl border bg-card p-5 sm:p-6">
         <h2 className="font-semibold">Åtgärder</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -55,44 +88,65 @@ function PolicyForm({ data }: { data: PolicyData }) {
         </p>
         {!data.canEdit ? (
           <p className="mt-3 text-sm text-muted-foreground">
-            Endast en administratör kan ändra reglerna.
+            Du kan läsa reglerna. Endast en administratör kan ändra dem.
           </p>
         ) : null}
         <div className="mt-5 divide-y">
           {actions.map(([key, label, copy]) => (
-            <label
-              className="grid gap-3 py-4 sm:grid-cols-[1fr_16rem] sm:items-center"
+            <div
+              className="grid gap-3 py-4 sm:grid-cols-[1fr_16rem] sm:items-start"
               key={key}
             >
-              <span>
-                <span className="block font-medium">{label}</span>
-                <span className="text-sm text-muted-foreground">{copy}</span>
-              </span>
-              <select
-                className="min-h-11 rounded-lg border bg-background px-3 text-sm"
-                disabled={!data.canEdit}
-                onChange={(event) =>
-                  setActions((current) => ({
-                    ...current,
-                    [key]: event.target.value as (typeof current)[typeof key],
-                  }))
-                }
-                value={actionsState[key]}
-              >
-                {decisions.map(([value, text]) => (
-                  <option key={value} value={value}>
-                    {text}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div>
+                <label className="block font-medium" htmlFor={`policy-${key}`}>
+                  {label}
+                </label>
+                <p className="text-sm text-muted-foreground">{copy}</p>
+              </div>
+              <div className="space-y-2">
+                <select
+                  className="min-h-11 rounded-lg border bg-background px-3 text-sm"
+                  disabled={!data.canEdit}
+                  id={`policy-${key}`}
+                  onChange={(event) =>
+                    change({
+                      ...form,
+                      actions: {
+                        ...form.actions,
+                        [key]: event.target
+                          .value as (typeof form.actions)[typeof key],
+                      },
+                    })
+                  }
+                  value={form.actions[key]}
+                >
+                  {decisions.map(([value, text]) => (
+                    <option key={value} value={value}>
+                      {text}
+                    </option>
+                  ))}
+                </select>
+                {form.actions[key] === "confirm" ? (
+                  <div className="rounded-lg bg-muted p-3 text-sm">
+                    <p className="font-medium">Kundbekräftelse krävs.</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Automatisk kundbekräftelse är ännu inte aktiverad. Med
+                      detta val utför AI:n inte handlingen.
+                    </p>
+                    <details className="mt-2 text-muted-foreground">
+                      <summary className="min-h-11 py-2 font-medium text-foreground">
+                        Mer information
+                      </summary>
+                      Bekräftelsen måste senare komma från en betrodd kundkanal.
+                      Ett meddelande eller en uppgift från modellen kan inte
+                      godkänna åtgärden.
+                    </details>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           ))}
         </div>
-        <p className="mt-4 rounded-lg bg-muted p-3 text-sm">
-          Bekräftelsekrävande åtgärder förblir blockerade tills en framtida
-          kundkanal kan verifiera en specifik bekräftelse. Ett meddelande eller
-          en kryssruta i webbläsaren räcker inte.
-        </p>
       </section>
       <section className="grid gap-5 rounded-xl border bg-card p-5 sm:grid-cols-2 sm:p-6">
         <div className="sm:col-span-2">
@@ -108,9 +162,13 @@ function PolicyForm({ data }: { data: PolicyData }) {
             className="min-h-11 rounded-lg border bg-background px-3"
             disabled={!data.canEdit}
             onChange={(event) =>
-              setLanguage(event.target.value as typeof responseLanguage)
+              change({
+                ...form,
+                responseLanguage: event.target
+                  .value as PolicyFormValue["responseLanguage"],
+              })
             }
-            value={responseLanguage}
+            value={form.responseLanguage}
           >
             <option value="business_default">Företagets standardspråk</option>
             <option value="swedish">Svenska</option>
@@ -123,9 +181,13 @@ function PolicyForm({ data }: { data: PolicyData }) {
             className="min-h-11 rounded-lg border bg-background px-3"
             disabled={!data.canEdit}
             onChange={(event) =>
-              setTone(event.target.value as typeof communicationTone)
+              change({
+                ...form,
+                communicationTone: event.target
+                  .value as PolicyFormValue["communicationTone"],
+              })
             }
-            value={communicationTone}
+            value={form.communicationTone}
           >
             <option value="neutral">Neutral</option>
             <option value="warm">Varm</option>
@@ -133,15 +195,33 @@ function PolicyForm({ data }: { data: PolicyData }) {
           </select>
         </label>
       </section>
+      {data.canEdit && dirty ? (
+        <p className="text-sm font-medium" role="status">
+          Du har osparade ändringar.
+        </p>
+      ) : null}
       {status ? (
-        <p className="text-sm" role="status">
-          {status}
+        <p
+          className={`text-sm ${status.kind === "error" ? "text-destructive" : ""}`}
+          role={status.kind === "error" ? "alert" : "status"}
+        >
+          {status.text}
         </p>
       ) : null}
       {data.canEdit ? (
-        <Button disabled={saving} type="submit">
-          {saving ? "Sparar…" : "Spara AI-inställningar"}
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          <Button disabled={saving || !dirty} type="submit">
+            {saving ? "Sparar…" : "Spara ändringar"}
+          </Button>
+          <Button
+            disabled={saving || !dirty}
+            onClick={reset}
+            type="button"
+            variant="outline"
+          >
+            Återställ ändringar
+          </Button>
+        </div>
       ) : null}
     </form>
   );
