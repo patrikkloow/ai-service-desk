@@ -10,10 +10,7 @@ import { parseModelToolRequest } from "./orchestratorCore";
 export class ModelProviderError extends Error {
   constructor(
     readonly code:
-      | "configuration"
-      | "timeout"
-      | "provider_error"
-      | "malformed_response",
+      "configuration" | "timeout" | "provider_error" | "malformed_response",
   ) {
     super(`AI provider: ${code}`);
   }
@@ -37,6 +34,8 @@ const toolShapes: Record<
   },
   "service.list": { required: {} },
   "availability.check": { required: { startTime: integer, endTime: integer } },
+  "business.profile": { required: {} },
+  "business.hours": { required: {} },
   "booking.create": {
     required: {
       customerId: string,

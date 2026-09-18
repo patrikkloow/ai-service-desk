@@ -8,9 +8,15 @@
  * @module
  */
 
+import type * as aiPolicy from "../aiPolicy.js";
 import type * as availability from "../availability.js";
 import type * as bookings from "../bookings.js";
+import type * as businessHours from "../businessHours.js";
+import type * as businessProfile from "../businessProfile.js";
 import type * as cases from "../cases.js";
+import type * as configValidators from "../configValidators.js";
+import type * as configuration from "../configuration.js";
+import type * as configurationInternal from "../configurationInternal.js";
 import type * as conversations from "../conversations.js";
 import type * as customers from "../customers.js";
 import type * as groundedResponse from "../groundedResponse.js";
@@ -37,9 +43,15 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiPolicy: typeof aiPolicy;
   availability: typeof availability;
   bookings: typeof bookings;
+  businessHours: typeof businessHours;
+  businessProfile: typeof businessProfile;
   cases: typeof cases;
+  configValidators: typeof configValidators;
+  configuration: typeof configuration;
+  configurationInternal: typeof configurationInternal;
   conversations: typeof conversations;
   customers: typeof customers;
   groundedResponse: typeof groundedResponse;

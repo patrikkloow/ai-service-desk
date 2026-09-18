@@ -6,6 +6,12 @@ import {
   nextAction,
   requestSummary,
 } from "./workValidators";
+import {
+  aiActionPolicies,
+  communicationTone,
+  responseLanguage,
+  weeklyBusinessHours,
+} from "./configValidators";
 
 /**
  * The tenant foundation for the platform. Domain-specific records belong to
@@ -31,6 +37,50 @@ export default defineSchema({
     displayName: v.optional(v.string()),
     email: v.optional(v.string()),
   }).index("by_authTokenIdentifier", ["authTokenIdentifier"]),
+
+  businessProfiles: defineTable({
+    organizationId: v.id("organizations"),
+    configured: v.boolean(),
+    companyName: v.string(),
+    timezone: v.string(),
+    defaultLanguage: v.string(),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    website: v.optional(v.string()),
+    address: v.optional(v.string()),
+    businessDescription: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
+
+  businessHours: defineTable({
+    organizationId: v.id("organizations"),
+    configured: v.boolean(),
+    schedule: weeklyBusinessHours,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
+
+  aiPolicies: defineTable({
+    organizationId: v.id("organizations"),
+    actions: aiActionPolicies,
+    responseLanguage,
+    communicationTone,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
+
+  configurationEvents: defineTable({
+    organizationId: v.id("organizations"),
+    domain: v.union(
+      v.literal("business_profile"),
+      v.literal("business_hours"),
+      v.literal("ai_policy"),
+    ),
+    action: v.union(v.literal("initialized"), v.literal("updated")),
+    actor: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
 
   customers: defineTable({
     // Always derived server-side from the authenticated Clerk organization.

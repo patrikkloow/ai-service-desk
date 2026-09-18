@@ -34,12 +34,24 @@ async function setup() {
   const identity = (org: string) => ({
     subject: `synthetic_${org}`,
     tokenIdentifier: `https://clerk.test|synthetic_${org}`,
-    o: { id: org, rol: "member" },
+    o: { id: org, rol: "admin" },
   });
   const a = t.withIdentity(identity("a"));
   const b = t.withIdentity(identity("b"));
   await a.mutation(api.tenants.ensureCurrentTenant, {});
   await b.mutation(api.tenants.ensureCurrentTenant, {});
+  const permissivePolicy = {
+    actions: {
+      bookingCreate: "allow" as const,
+      bookingReschedule: "allow" as const,
+      bookingCancel: "allow" as const,
+      caseCreate: "allow" as const,
+    },
+    responseLanguage: "swedish" as const,
+    communicationTone: "neutral" as const,
+  };
+  await a.mutation(api.aiPolicy.update, permissivePolicy);
+  await b.mutation(api.aiPolicy.update, permissivePolicy);
   const customer = await a.mutation(api.customers.create, {
     name: "Testkund Alfa",
     email: "synthetic@example.test",

@@ -1,6 +1,6 @@
 # Architecture
 
-Updated: 2026-09-17, Milestone 10 built from `main` at `96212a0`. Product direction and source basis: [product-context.md](product-context.md). Mandatory rules: [security-invariants.md](security-invariants.md).
+Updated: 2026-09-18, Milestone 11 built from `main` at `e95ac79`. Product direction and source basis: [product-context.md](product-context.md). Mandatory rules: [security-invariants.md](security-invariants.md).
 
 ## CURRENT — stack and ownership
 
@@ -8,21 +8,22 @@ Next.js **16.3.5** (App Router), React **19.2.8**, TypeScript, Tailwind CSS **4*
 
 Clerk is the source of truth for identity, organizations, memberships and roles. Convex owns application/business data. Local `organizations` maps `clerkOrganizationId` to the internal tenant; local `users` is a minimal identity projection, not a parallel membership/role authority.
 
-`src/components/tenant-bootstrap.tsx` calls `ensureCurrentTenant({})` after authenticated session/active-organization readiness, including user/organization changes. `convex/tenants.ts` provisions from verified identity. `convex/tenant.ts` derives active organization and role from Clerk's verified compact `o` claim and resolves an active local tenant through `requireCurrentTenant()`.
+`src/components/tenant-bootstrap.tsx` calls `ensureCurrentTenant({})` after authenticated session/active-organization readiness, including user/organization changes. `convex/tenants.ts` provisions the tenant and its three configuration records from verified identity. `convex/tenant.ts` derives active organization and role from Clerk's verified compact `o` claim, resolves an active local tenant through `requireCurrentTenant()`, and exposes an admin guard for configuration mutations.
 
 Tenant-scoped reads and mutations use this server context, tenant-first queries and record-ownership checks. Client-side org selection is only a readiness/UI signal. Domain IDs supplied by callers must still be checked against the derived tenant, including linked records.
 
-## CURRENT — implemented domains through Milestone 10
+## CURRENT — implemented domains through Milestone 11
 
-| Area | Implementation and limits |
-| --- | --- |
-| Customers / Services | `convex/customers.ts`, `services.ts`: tenant-scoped management and active/inactive status. Service prices use `not_specified`, `fixed`, or `from`, with integer minor units and currency. |
-| Bookings / Availability | `bookings.ts`, `availability.ts`: create/reschedule/cancel/complete, source snapshots, valid time intervals and confirmed-booking conflict checks. Unix milliseconds; half-open intervals; 1 minute–24 hour duration. Capacity is effectively one across the tenant, not per resource. No business-hours calendar or external booking provider. |
-| Knowledge | `knowledge.ts`: active/inactive text entries and tenant-filtered full-text search. No embeddings, vector RAG, file ingestion or provider-owned knowledge store. |
-| Conversations / Cases | `conversations.ts`, `cases.ts`: optional customer association, channel label, open/resolved lifecycle, append-only messages and minimal activity events. Cases may stand alone or link to a conversation/customer. `human.escalate` creates/reuses an open follow-up case without resolving the conversation. M9 adds verified acknowledgment and Inbox attention controls, retaining the Case API contract. |
-| Service Requests / Inbox | `serviceRequests.ts`, `inbox.ts`: minimal generic work object, indexed attention queue, operator ownership and deterministic summary/context. `workEvents` stores safe action/actor references. |
-| Tool Layer | `toolRegistry.ts`, `tools.ts`: explicit registry, separate read query/write mutation paths, strict input validators and named domain operations. |
-| AI Orchestrator v1 | `orchestrator.ts`, `orchestratorCore.ts`, `orchestratorInternal.ts`, `modelAdapter.ts`: authenticated text turns, bounded context/tool loop and server-written AI responses. |
+| Area                        | Implementation and limits                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Customers / Services        | `convex/customers.ts`, `services.ts`: tenant-scoped management and active/inactive status. Service prices use `not_specified`, `fixed`, or `from`, with integer minor units and currency.                                                                                                                                                                                                                    |
+| Bookings / Availability     | `bookings.ts`, `availability.ts`: create/reschedule/cancel/complete, source snapshots, valid time intervals and confirmed-booking conflict checks. Unix milliseconds; half-open intervals; 1 minute–24 hour duration. Capacity is effectively one across the tenant, not per resource. No business-hours calendar or external booking provider.                                                              |
+| Knowledge                   | `knowledge.ts`: active/inactive text entries and tenant-filtered full-text search. No embeddings, vector RAG, file ingestion or provider-owned knowledge store.                                                                                                                                                                                                                                              |
+| Conversations / Cases       | `conversations.ts`, `cases.ts`: optional customer association, channel label, open/resolved lifecycle, append-only messages and minimal activity events. Cases may stand alone or link to a conversation/customer. `human.escalate` creates/reuses an open follow-up case without resolving the conversation. M9 adds verified acknowledgment and Inbox attention controls, retaining the Case API contract. |
+| Service Requests / Inbox    | `serviceRequests.ts`, `inbox.ts`: minimal generic work object, indexed attention queue, operator ownership and deterministic summary/context. `workEvents` stores safe action/actor references.                                                                                                                                                                                                              |
+| Tool Layer                  | `toolRegistry.ts`, `tools.ts`: explicit registry, separate read query/write mutation paths, strict input validators and named domain operations.                                                                                                                                                                                                                                                             |
+| AI Orchestrator v1          | `orchestrator.ts`, `orchestratorCore.ts`, `orchestratorInternal.ts`, `modelAdapter.ts`: authenticated text turns, bounded context/tool loop and server-written AI responses.                                                                                                                                                                                                                                 |
+| Business / AI Configuration | `businessProfile.ts`, `businessHours.ts`, `aiPolicy.ts`, `configuration.ts`: one tenant-owned record per domain, safe bootstrap defaults, admin-only writes, bounded fields and minimal configuration audit events.                                                                                                                                                                                          |
 
 Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives. Existing customer/service, knowledge and booking components remain simple management surfaces on dedicated routes. Raw conversations/Cases, Tool Console and configurable orchestrator are isolated at `/dev`, checked server-side for development mode and Clerk sign-in; they are not linked from operator navigation. A channel enum (`web`, `sms`, `phone`, `email`, `other`) does not mean those external channels are connected. Current functions run in a signed-in Clerk organization context; public/customer channel authentication is future work.
 
@@ -30,7 +31,7 @@ Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives
 
 `processCustomerMessage` accepts only `conversationId` and `message`. It appends the customer message, loads authorized conversation context, invokes the model adapter/tool loop and saves the AI response through an internal mutation.
 
-- Read tools: `knowledge.search`, `customer.find`, `service.list`, `availability.check`.
+- Read tools: `knowledge.search`, `customer.find`, `service.list`, `availability.check`, `business.profile`, `business.hours`.
 - Write tools: `booking.create`, `booking.reschedule`, `booking.cancel`, `case.create`, `human.escalate`.
 - Model adapters return data, never execute database calls. The server strictly parses model tool arguments and attaches the current conversation context; model-supplied authority/context overrides are rejected.
 - Context: at most 12 messages, each capped at 4,000 characters. Incoming customer text and final AI text are also capped at 4,000. Tool loop permits at most five tool attempts, with a final model response opportunity.
@@ -38,7 +39,7 @@ Operator routes use a shared mobile-first shell and minimal shadcn/ui primitives
 - Every write execution is terminal for the turn. The server composes a successful, failed or uncertain outcome directly; no provider round or second write follows it. This strengthens M8 within-turn retry protection, but is not durable or cross-turn idempotency. Escalation retains open-case duplicate resistance.
 - Tool-linked conversation activity stores event type and safe entity references, not raw arguments or contact data. This is not a complete audit system for every domain write.
 
-Role claims are validated (`org:admin` / `org:member`), but current domains do not implement a fine-grained role permission matrix. Configurable AI confirmation policies and entitlements are also absent. Prompt instructions are guidance, never authorization.
+Role claims are validated (`org:admin` / `org:member`). M11 uses `org:admin` for configuration writes while both roles may read configuration; broader domain role permissions and entitlements are still absent. Prompt instructions are guidance, never authorization.
 
 ## CURRENT — limitations
 
@@ -58,12 +59,25 @@ The initial conversation is optional and unique per request creation path; it is
 
 `workEvents` records reference, action, verified identity identifier and timestamp, without raw content. M9 request and attention writes use this audit path; existing Case APIs retain their prior audit limitations. Acknowledgment does not grant exclusive permissions: another tenant member can resolve attention, but cannot replace a colleague's acknowledgment. Resolving request attention leaves linked Cases, lifecycle and conversation open; a standalone Case uses its existing resolved lifecycle. Reopened linked Cases request attention again. No automatic model pause/resume is implied.
 
-The `(operator)` route group shares `ProductShell`: `/` provides a bounded real-data overview, `/inbox` the attention queue, `/requests` Service Requests only, `/calendar` the existing booking list, `/customers` customer management, and `/settings/services` plus `/settings/knowledge` existing configuration. No future configuration or full calendar capability is implied. Account/tenant changes reset operator drafts and selected detail; provisioning readiness gates tenant content, while Convex remains the authorization boundary.
+The `(operator)` route group shares `ProductShell`: `/` provides a bounded real-data overview, `/inbox` the attention queue, `/requests` Service Requests only, `/calendar` the existing booking list, `/customers` customer management, and `/settings/business`, `/settings/hours`, `/settings/ai`, `/settings/services` and `/settings/knowledge` configuration. Member controls are visibly read-only and Convex enforces the admin boundary. No full calendar/onboarding capability is implied. Account/tenant changes reset operator drafts and selected detail; provisioning readiness gates tenant content, while Convex remains the authorization boundary.
 
 `src/components/inbox.tsx` uses shadcn Button, Badge, Input, Textarea, Dialog, Tabs, Collapsible, Empty and Scroll Area. The shell uses shadcn Sidebar with its mobile Sheet behavior and Tooltip; Overview uses Card/Skeleton. Inbox is attention-only. Förfrågningar contains Service Requests across their lifecycle and offers client filters over the bounded result: Alla, Pågående (`new` + `active`), Bokade and Klart; cancelled requests remain under Alla. On phones, a selected request replaces the list with an explicit back action; desktop shows both and previews the first visible item. Request creation takes a need/title, optional note/customer/service and a collapsed existing-conversation link. Existing server defaults remain authoritative. Detail prioritizes next action, acknowledgment/resolution, deterministic summary, contact context and history; manual relationships/lifecycle edits are collapsed. Attention resolution still does not complete the work lifecycle. Recorded activity is labeled neutrally because event provenance does not prove every action was performed by AI.
 
-
 Structured intake templates, Required Checks, Resources, Estimates/Quotes, multiple appointment/conversation management and a generic workflow engine remain PLANNED.
+
+## CURRENT — Business Configuration and AI Policies (M11)
+
+`businessProfiles`, `businessHours` and `aiPolicies` are separate tenant-scoped tables with unique-by-organization lookup indexes. `ensureCurrentTenant` creates missing records repeat-safely. Business profiles hold bounded identity/contact fields, an IANA timezone and default language. Business hours hold a seven-day schedule with zero to four sorted, non-overlapping `HH:mm` intervals per day; adjacent intervals are valid. The configured timezone comes from the Business Profile. Hours are informational and do not alter `availability.check` or booking conflict logic.
+
+`configurationEvents` records only organization, configuration domain, `initialized`/`updated`, verified actor identifier and timestamp. It deliberately omits changed values and free text. All configuration reads derive the tenant with `requireCurrentTenant`; writes use `requireCurrentTenantAdmin`. The UI's disabled member controls are explanatory only and do not replace the backend check.
+
+AI policy contains four action decisions: booking create, booking reschedule, booking cancel and case create. Values are `allow`, `confirm` or `human`. `evaluateActionPolicy` is the single server evaluator before orchestrator write dispatch. `allow` reaches the unchanged Tool Layer operation. `human` invokes the existing duplicate-resistant `human.escalate` operation and does not execute the requested write. `confirm` does not execute a write: M11 has no trusted customer-session confirmation evidence, so a deterministic response asks for confirmation and records no state change. Missing/malformed policy and unknown actions fail to human handling. `human.escalate` itself remains allowed so policy cannot disable the safe fallback. Direct staff domain operations are not AI autonomy decisions and remain governed by their existing authenticated APIs.
+
+The provider receives only bounded policy-derived style instructions built from enums. `business_default` resolves English locale tags to the fixed English instruction and otherwise uses the Swedish default; no locale or profile text is interpolated into the prompt. Tenant-authored Business Profile text and Business Hours values are never included in model instructions or tool-result replay. The model can select the fixed `business.profile` or `business.hours` read tool, after which an authenticated internal query renders a deterministic response and terminates the turn. This keeps tenant configuration as the authoritative source while avoiding new provider data exposure. It also means the model cannot paraphrase those responses. Unknown/unconfigured values return a controlled unknown response.
+
+PII-safe `ai_run` metadata distinguishes `confirmation_required` and `human_required` from normal action success/failure. It contains no configuration values. M11 tests cover initialization, isolation, admin/member authorization, malformed schedules/timezones, safe policy defaults, explicit allow/confirm/human paths, missing-policy fail-safe behavior, spoofed confirmation arguments, duplicate-resistant handoff, provider-input privacy and deterministic business-fact rendering.
+
+M11 does not add trusted external-customer authorization or confirmation evidence, per-tool enable/disable switches, free-text prompt configuration, holiday/buffer/resource booking rules, policy versioning, a general workflow engine or production channels. Channel/session identity is the next architectural prerequisite.
 
 ## PLANNED — channel and provider boundaries
 
@@ -77,7 +91,7 @@ A Conversation is long-lived business history; a Channel Session represents a ca
 
 ElevenLabs Speech Engine handles STT, TTS, turn-taking and interruptions. Our server owns model selection, orchestration, tenant authorization and tools. Twilio/SIP is the likely later telephony path, not implemented. Voice requires a streaming/cancellable server adapter; the current orchestrator is request/response. A proposed minimal interface is `AsyncIterable<string>` with cancellation, retaining all existing security checks. Validate production WebSocket hosting before selecting its deployment architecture; do not assume planned Vercel hosting proves this path.
 
-BookingProvider will sit behind the existing tool concepts so internal and external booking systems share authorization and policy rules. General Resources and business hours, buffers, blocked time, holidays and notice rules remain planned. Tenant business/AI configuration and workflow execution remain future components.
+BookingProvider will sit behind the existing tool concepts so internal and external booking systems share authorization and policy rules. General Resources, availability enforcement from ordinary hours, buffers, blocked time, holidays and notice rules remain planned. M11 business/AI configuration exists; generic workflow execution remains future work.
 
 Observability should expose safe metadata: channel, stage latency, tool names/outcomes, escalation, provider/model and approximate cost. Separate model/brain, tool, speech-provider and end-to-end timings. M10 adds safe `ai_run` metadata (below). These records are not a complete tracing, retention or cost system.
 
@@ -105,12 +119,12 @@ A fresh adapter belongs to one authenticated turn. It replays function-call IDs/
 
 Set configuration in the **Convex backend environment**, not `NEXT_PUBLIC_*` or browser settings. Local `.env.local` is only read by the standalone smoke helper; it does not configure a deployed Convex backend.
 
-| Variable | Behavior |
-| --- | --- |
-| `AI_MODEL_MODE` | Omitted/`fake`: deterministic default. `live`: explicit OpenAI selection. Other values fail closed. |
-| `OPENAI_API_KEY` | Required secret for live mode; never returned, logged or committed. |
-| `OPENAI_MODEL` | Required server-selected supported Responses model; no scattered model default in business logic. Validate the chosen model with the smoke command. |
-| `AI_MODEL_TIMEOUT_MS` | Optional integer 1,000–60,000 ms; default 20,000 ms per provider call. |
+| Variable              | Behavior                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_MODEL_MODE`       | Omitted/`fake`: deterministic default. `live`: explicit OpenAI selection. Other values fail closed.                                                 |
+| `OPENAI_API_KEY`      | Required secret for live mode; never returned, logged or committed.                                                                                 |
+| `OPENAI_MODEL`        | Required server-selected supported Responses model; no scattered model default in business logic. Validate the chosen model with the smoke command. |
+| `AI_MODEL_TIMEOUT_MS` | Optional integer 1,000–60,000 ms; default 20,000 ms per provider call.                                                                              |
 
 The repository's existing `process.env` server configuration pattern is retained; no client-provided override or endpoint exists. Configuration errors return a controlled diagnostic. `runtimeInfo` requires the current tenant and returns only mode/provider/model. The production request validator still accepts only conversation ID and message. `/dev` stays server-gated to authenticated development, displays mode/model before submission, disables duplicate submission while pending and shows safe latency/tool/outcome metadata. Runtime changes require server configuration; there is no browser toggle.
 

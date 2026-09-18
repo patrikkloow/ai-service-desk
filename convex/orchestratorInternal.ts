@@ -8,11 +8,15 @@ import {
   MAX_CONTEXT_MESSAGE_CHARS,
   MAX_CONTEXT_MESSAGES,
 } from "./orchestratorCore";
+import { getTenantConfiguration } from "./configuration";
 
 export const loadConversationContext = internalQuery({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) throw new Error("Conversation is unavailable");
 
     const newestFirst = await ctx.db
@@ -24,6 +28,14 @@ export const loadConversationContext = internalQuery({
       )
       .order("desc")
       .take(MAX_CONTEXT_MESSAGES);
+    const [policy, profile] = await Promise.all([
+      getTenantConfiguration(ctx, "aiPolicies", conversation.organizationId),
+      getTenantConfiguration(
+        ctx,
+        "businessProfiles",
+        conversation.organizationId,
+      ),
+    ]);
 
     return {
       conversation: {
@@ -37,6 +49,18 @@ export const loadConversationContext = internalQuery({
         senderType: message.senderType,
         content: message.content.slice(0, MAX_CONTEXT_MESSAGE_CHARS),
       })),
+      actionPolicies: policy?.actions ?? null,
+      responseStyle: policy
+        ? {
+            language:
+              policy.responseLanguage === "business_default"
+                ? profile?.defaultLanguage.toLowerCase().startsWith("en")
+                  ? "english"
+                  : "swedish"
+                : policy.responseLanguage,
+            tone: policy.communicationTone,
+          }
+        : null,
     };
   },
 });
@@ -44,7 +68,10 @@ export const loadConversationContext = internalQuery({
 export const appendAiResponse = internalMutation({
   args: { conversationId: v.id("conversations"), content: v.string() },
   handler: async (ctx, args) => {
-    const conversation = await getAvailableConversation(ctx, args.conversationId);
+    const conversation = await getAvailableConversation(
+      ctx,
+      args.conversationId,
+    );
     if (conversation === null) throw new Error("Conversation is unavailable");
     await appendConversationMessage(ctx, conversation, "ai", args.content);
   },

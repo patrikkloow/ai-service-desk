@@ -13,6 +13,8 @@ import {
   type ToolExecution,
 } from "./orchestratorCore";
 import { type ModelAdapter } from "./modelAdapter";
+import { evaluateActionPolicy } from "./aiPolicy";
+import { getApprovedToolDefinition } from "./toolRegistry";
 
 type CustomerTurnArgs = {
   conversationId: Id<"conversations">;
@@ -60,8 +62,47 @@ async function executeCurrentConversationTool(
   ctx: ActionCtx,
   conversationId: Id<"conversations">,
   request: ModelToolRequest,
+  actionPolicies: unknown,
 ): Promise<ToolExecution> {
   try {
+    const definition = getApprovedToolDefinition(request.toolName);
+    if (definition?.kind === "write" && request.toolName !== "human.escalate") {
+      const decision = evaluateActionPolicy(actionPolicies, request.toolName);
+      if (decision === "needs_customer_confirmation") {
+        return {
+          kind: "completed",
+          result: {
+            ok: false,
+            error: {
+              code: "needs_customer_confirmation",
+              message: "Verified customer confirmation is required.",
+            },
+          },
+        };
+      }
+      if (decision === "needs_human") {
+        const handoff = await ctx.runMutation(api.tools.executeWrite, {
+          request: {
+            toolName: "human.escalate",
+            args: {
+              conversationId,
+              reason: `AI policy requires human handling for ${request.toolName}.`,
+            },
+          },
+        });
+        return {
+          kind: "completed",
+          result: {
+            ok: false,
+            error: {
+              code: "needs_human",
+              message: "Human handling is required by server policy.",
+            },
+            handoff,
+          },
+        };
+      }
+    }
     switch (request.toolName) {
       case "knowledge.search":
       case "customer.find":
@@ -72,6 +113,22 @@ async function executeCurrentConversationTool(
           result: await ctx.runQuery(api.tools.executeRead, {
             request: request as never,
           }),
+        };
+      case "business.profile":
+        return {
+          kind: "terminal",
+          response: await ctx.runQuery(
+            internal.configurationInternal.renderBusinessProfile,
+            {},
+          ),
+        };
+      case "business.hours":
+        return {
+          kind: "terminal",
+          response: await ctx.runQuery(
+            internal.configurationInternal.renderBusinessHours,
+            {},
+          ),
         };
       case "booking.create":
         return {
@@ -212,7 +269,12 @@ export async function processCustomerTurn(
     adapter,
     context,
     executeTool: async (request) =>
-      await executeCurrentConversationTool(ctx, args.conversationId, request),
+      await executeCurrentConversationTool(
+        ctx,
+        args.conversationId,
+        request,
+        context.actionPolicies,
+      ),
   });
   // Deliberately log only allowlisted timing/outcome metadata, never context or arguments.
   if (!result.ok) {

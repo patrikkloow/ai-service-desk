@@ -1,27 +1,28 @@
 # Risk-first roadmap
 
-Updated: 2026-09-17 for Milestone 10, based on main `96212a0`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
+Updated: 2026-09-18 for Milestone 11, based on main `e95ac79`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
 
-## CURRENT — completed milestones 1–10
+## CURRENT — completed milestones 1–11
 
-| Milestone | Completed scope | Important Git checkpoint(s) |
-| --- | --- | --- |
-| 1 — Foundation / auth / tenancy | Next.js + Convex, Clerk auth/org context, tenant isolation | `be78b26` — Set up Convex backend; `005113b` — Set up Clerk authentication and tenant isolation |
-| 2 — Tenant bootstrap | Secure, repeat-safe provisioning on session/org readiness | `6a49d4e` — Add secure tenant provisioning bootstrap |
-| 3 — Customers + Services | General tenant-owned customer/service data and structured pricing | `039d16f` — Add tenant-scoped customers and services core |
-| 4 — Bookings + Availability | Internal booking lifecycle and overlap checks | `fe53a16` — Add tenant-scoped bookings and availability |
-| 5 — Knowledge | Tenant knowledge entries and active-source search | `7272715` — Add tenant-scoped knowledge base |
-| 6 — Conversations + Cases | Messages, lifecycle events and follow-up records | `96bf02a` — Add tenant-scoped conversations and cases |
-| 7 — Secure Tool Layer | Explicit read/write registry, validated domain operations, escalation | `d07fbef` — Add secure AI tool action layer |
-| 8 — AI Orchestrator v1 | Provider-neutral boundary, bounded context/tool loop, deterministic fake model | `a0aeb0a` — Add secure AI orchestrator |
-| 9 — Human Handoff + Inbox | Minimal generic Service Requests, attention/next action, verified acknowledgment, deterministic summaries, Swedish Inbox and compatible escalation/Case linking | `milestone-9/handoff-inbox` — milestone checkpoint |
-| 10 — Live LLM + evaluation suite | OpenAI Responses adapter; server-only fake/live configuration; terminal writes and deterministic action confirmations; evidence-backed Swedish response templates; offline evals, optional live smoke and PII-safe run metadata | `milestone-10/live-llm-evals` — milestone checkpoint |
+| Milestone                                 | Completed scope                                                                                                                                                                                                                                | Important Git checkpoint(s)                                                                     |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 1 — Foundation / auth / tenancy           | Next.js + Convex, Clerk auth/org context, tenant isolation                                                                                                                                                                                     | `be78b26` — Set up Convex backend; `005113b` — Set up Clerk authentication and tenant isolation |
+| 2 — Tenant bootstrap                      | Secure, repeat-safe provisioning on session/org readiness                                                                                                                                                                                      | `6a49d4e` — Add secure tenant provisioning bootstrap                                            |
+| 3 — Customers + Services                  | General tenant-owned customer/service data and structured pricing                                                                                                                                                                              | `039d16f` — Add tenant-scoped customers and services core                                       |
+| 4 — Bookings + Availability               | Internal booking lifecycle and overlap checks                                                                                                                                                                                                  | `fe53a16` — Add tenant-scoped bookings and availability                                         |
+| 5 — Knowledge                             | Tenant knowledge entries and active-source search                                                                                                                                                                                              | `7272715` — Add tenant-scoped knowledge base                                                    |
+| 6 — Conversations + Cases                 | Messages, lifecycle events and follow-up records                                                                                                                                                                                               | `96bf02a` — Add tenant-scoped conversations and cases                                           |
+| 7 — Secure Tool Layer                     | Explicit read/write registry, validated domain operations, escalation                                                                                                                                                                          | `d07fbef` — Add secure AI tool action layer                                                     |
+| 8 — AI Orchestrator v1                    | Provider-neutral boundary, bounded context/tool loop, deterministic fake model                                                                                                                                                                 | `a0aeb0a` — Add secure AI orchestrator                                                          |
+| 9 — Human Handoff + Inbox                 | Minimal generic Service Requests, attention/next action, verified acknowledgment, deterministic summaries, Swedish Inbox and compatible escalation/Case linking                                                                                | `milestone-9/handoff-inbox` — milestone checkpoint                                              |
+| 10 — Live LLM + evaluation suite          | OpenAI Responses adapter; server-only fake/live configuration; terminal writes and deterministic action confirmations; evidence-backed Swedish response templates; offline evals, optional live smoke and PII-safe run metadata                | `milestone-10/live-llm-evals` — milestone checkpoint                                            |
+| 11 — Business Configuration + AI Policies | Tenant business profile and ordinary weekly hours; bounded language/tone; admin-only configuration writes; central server action policy with safe allow/confirm/human outcomes; deterministic configuration grounding and minimal audit events | `milestone-11/business-config-ai-policies` — milestone checkpoint                               |
 
-Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. M10 adds a live LLM adapter, but no production channels, full dashboard, Resources, billing or automotive layer is implied by completion.
+Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. M10 adds a live LLM adapter and M11 adds server-enforced tenant configuration/policies, but no production channels, full dashboard, Resources, billing or automotive layer is implied by completion.
 
 ## CURRENT — focused UX shell after M9
 
-A Swedish, mobile-first operator shell and minimal shadcn/ui foundation are implemented on top of the M9 checkpoint. Overview, Inbox, Förfrågningar, booking list, customers and existing settings have separate routes. Request creation and details emphasize simple actions with manual controls collapsed. Authenticated development tools live only at `/dev` in development mode. M9 domain/security semantics and the scope of M10–M19 are unchanged; the richer calendar and business configuration remain planned.
+A Swedish, mobile-first operator shell and minimal shadcn/ui foundation are implemented on top of the M9 checkpoint. Overview, Inbox, Förfrågningar, booking list, customers and settings have separate routes. M11 adds focused Business Profile, Business Hours and AI Policy pages without redesigning the shell. Request creation and details emphasize simple actions with manual controls collapsed. Authenticated development tools live only at `/dev` in development mode. The richer calendar and full onboarding remain planned.
 
 ## IN PROGRESS — 8.5 Voice Feasibility Spike
 
@@ -31,18 +32,17 @@ Before considering production reuse: measure speech-end to audible response with
 
 ## PLANNED — ordered delivery
 
-| Milestone | Outcome |
-| --- | --- |
-| 11 — Business Configuration + AI Policies | Per-tenant language/tone, opening hours, booking/handoff rules, enabled tools and enforced autonomy/confirmation policies. |
-| 12 — Channel Foundation + Channel Sessions | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history. |
-| 13 — Webchat | First production customer channel through the shared orchestrator and secure tools. |
-| 14 — Booking UX + Resources + provider abstraction | Calendar-like UI, general resources and booking rules; internal/external booking providers behind stable tools. Validate integration assumptions early. |
-| 15 — Phone production integration | Production streaming/cancellation, verified voice/session boundary, hosting, telephony and simple channel setup. ElevenLabs voice with our brain; likely Twilio/SIP. |
-| 16 — Email | Thread-aware adapter and setup; draft/safe-reply behavior under common policies and handoff. |
-| 17 — SMS | Provider-message tracking, setup and shared conversation/tool behavior. |
-| 18 — Entitlements + Stripe Billing | Own server-enforced capability model and Stripe direct subscription mapping; keep billing identifiers out of domain logic. |
-| 19 — Automotive configuration/layer | Workshop-specific information/workflows above the general core. |
-| Pilot | Validate correct handling/bookings, escalation, staff time saved, error rate, customer acceptance and willingness to pay. Start with observe/draft and progress to safe automation. |
+| Milestone                                          | Outcome                                                                                                                                                                             |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12 — Channel Foundation + Channel Sessions         | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history.                                                        |
+| 13 — Webchat                                       | First production customer channel through the shared orchestrator and secure tools.                                                                                                 |
+| 14 — Booking UX + Resources + provider abstraction | Calendar-like UI, general resources and booking rules; internal/external booking providers behind stable tools. Validate integration assumptions early.                             |
+| 15 — Phone production integration                  | Production streaming/cancellation, verified voice/session boundary, hosting, telephony and simple channel setup. ElevenLabs voice with our brain; likely Twilio/SIP.                |
+| 16 — Email                                         | Thread-aware adapter and setup; draft/safe-reply behavior under common policies and handoff.                                                                                        |
+| 17 — SMS                                           | Provider-message tracking, setup and shared conversation/tool behavior.                                                                                                             |
+| 18 — Entitlements + Stripe Billing                 | Own server-enforced capability model and Stripe direct subscription mapping; keep billing identifiers out of domain logic.                                                          |
+| 19 — Automotive configuration/layer                | Workshop-specific information/workflows above the general core.                                                                                                                     |
+| Pilot                                              | Validate correct handling/bookings, escalation, staff time saved, error rate, customer acceptance and willingness to pay. Start with observe/draft and progress to safe automation. |
 
 Milestone 9 is complete for the scoped authenticated staff foundation. It deliberately does not implement live AI/channel takeover or resume: staff acknowledgment/resolution is explicit, and future escalation can request attention again. Cases remain supported and appear once through a linked request, or as standalone follow-up items. Staff create/edit requests; no new autonomous request-creation tool was required.
 
@@ -50,7 +50,9 @@ Deferred: structured intake templates, Required Checks, Estimate/Quote models, R
 
 **M10 COMPLETE for the scoped implementation.** Offline evaluations and deterministic security tests are implemented; the optional real-provider smoke is unverified because no key was available. Template-based answers trade expressiveness for enforceable grounding; live language/intent quality is not established by scripted tests. See [architecture.md](architecture.md) for commands and limits.
 
-**Next: Milestone 11 — Business Configuration + AI Policies.** Enforce consent/autonomy prerequisites before customer-facing writes. M10 does not add external-customer target-record authorization or a production channel.
+**M11 COMPLETE for the scoped implementation.** Per-tenant business identity, ordinary weekly hours and bounded AI response settings are live in authenticated settings. The server enforces allow/confirm/human policies before AI writes, uses existing escalation for human-required actions, and fails missing/malformed policy data safe. Because trusted channel/session confirmation evidence does not exist, confirmation-required actions remain blocked and cannot be unlocked by model or client claims.
+
+**Next: Milestone 12 — Channel Foundation + Channel Sessions.** Establish trusted tenant/customer/session mappings and explicit confirmation evidence before exposing customer-facing writes. M11 does not add external-customer target-record authorization or a production channel.
 
 General workflows remain planned; do not turn Milestone 9 into an unlimited workflow-builder project without a scope decision. Pilot discovery and commercial validation should happen throughout, even though the integrated Pilot is listed last. Later milestones may move when evidence justifies it; document changes explicitly.
 

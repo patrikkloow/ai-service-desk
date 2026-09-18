@@ -30,17 +30,36 @@ export const APPROVED_TOOL_DEFINITIONS = [
     output: "availability status",
   },
   {
+    name: "business.profile",
+    kind: "read",
+    description:
+      "Ask the server to present configured business identity and public contact details. The model never receives those values.",
+    input: "none",
+    output: "server-composed customer response",
+  },
+  {
+    name: "business.hours",
+    kind: "read",
+    description:
+      "Ask the server to present normal weekly opening hours. These are not booking availability. The model never receives those values.",
+    input: "none",
+    output: "server-composed customer response",
+  },
+  {
     name: "booking.create",
     kind: "write",
     description: "Create a confirmed booking through the booking domain rules.",
-    input: "customerId, serviceId, startTime, endTime, optional notes; active conversation context is attached by the server",
+    input:
+      "customerId, serviceId, startTime, endTime, optional notes; active conversation context is attached by the server",
     output: "booking reference and status",
   },
   {
     name: "booking.reschedule",
     kind: "write",
-    description: "Reschedule a confirmed booking through the booking domain rules.",
-    input: "bookingId, startTime, endTime; active conversation context is attached by the server",
+    description:
+      "Reschedule a confirmed booking through the booking domain rules.",
+    input:
+      "bookingId, startTime, endTime; active conversation context is attached by the server",
     output: "booking reference and status",
   },
   {
@@ -53,21 +72,27 @@ export const APPROVED_TOOL_DEFINITIONS = [
   {
     name: "case.create",
     kind: "write",
-    description: "Create a tenant-scoped case with optional customer or conversation context.",
-    input: "title, optional description, priority, customerId; active conversation context is attached by the server when present",
+    description:
+      "Create a tenant-scoped case with optional customer or conversation context.",
+    input:
+      "title, optional description, priority, customerId; active conversation context is attached by the server when present",
     output: "case reference and status",
   },
   {
     name: "human.escalate",
     kind: "write",
-    description: "Mark a conversation for human follow-up without resolving it.",
+    description:
+      "Mark a conversation for human follow-up without resolving it.",
     input: "reason; the active conversation is attached by the server",
     output: "escalation case reference and whether it was created",
   },
 ] as const;
 
-export type ApprovedToolName = (typeof APPROVED_TOOL_DEFINITIONS)[number]["name"];
+export type ApprovedToolName =
+  (typeof APPROVED_TOOL_DEFINITIONS)[number]["name"];
 
 export function getApprovedToolDefinition(name: string) {
-  return APPROVED_TOOL_DEFINITIONS.find((definition) => definition.name === name);
+  return APPROVED_TOOL_DEFINITIONS.find(
+    (definition) => definition.name === name,
+  );
 }

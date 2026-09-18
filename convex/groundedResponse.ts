@@ -46,6 +46,16 @@ export function actionResponse(
   result: unknown,
   uncertain = false,
 ): string {
+  const response = record(result);
+  const error = record(response?.error);
+  if (error?.code === "needs_customer_confirmation")
+    return "Jag behöver din tydliga bekräftelse innan åtgärden kan genomföras. Ingen ändring har gjorts.";
+  if (error?.code === "needs_human") {
+    const handoff = record(response?.handoff);
+    return handoff?.ok === true
+      ? "Personal behöver hantera detta. Din förfrågan är registrerad för uppföljning; ingen annan åtgärd har genomförts."
+      : "Personal behöver hantera detta. Ingen ändring har genomförts.";
+  }
   switch (actionOutcome(name, result, uncertain)) {
     case "success":
       return confirmations[name];

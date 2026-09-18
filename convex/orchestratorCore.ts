@@ -35,6 +35,8 @@ export type ModelToolRequest =
       toolName: "availability.check";
       args: { startTime: number; endTime: number };
     }
+  | { toolName: "business.profile"; args: Record<string, never> }
+  | { toolName: "business.hours"; args: Record<string, never> }
   | {
       toolName: "booking.create";
       args: {
@@ -67,11 +69,11 @@ type ToolValidationFailure = {
 };
 
 type ParsedToolRequest =
-  | { ok: true; request: ModelToolRequest }
-  | ToolValidationFailure;
+  { ok: true; request: ModelToolRequest } | ToolValidationFailure;
 
 export type ToolExecution =
   | { kind: "completed"; result: unknown }
+  | { kind: "terminal"; response: string }
   | {
       kind: "uncertain";
       error: { code: "execution_failed"; message: string };
@@ -84,7 +86,30 @@ type OrchestrationContext = {
     customerLinked: boolean;
   };
   messages: Array<ModelContextMessage>;
+  responseStyle?: {
+    language: "business_default" | "swedish" | "english";
+    tone: "neutral" | "warm" | "formal";
+  } | null;
 };
+
+function responseStyleInstruction(
+  style: OrchestrationContext["responseStyle"],
+) {
+  if (!style) return "";
+  const language =
+    style.language === "swedish"
+      ? "Respond in Swedish."
+      : style.language === "english"
+        ? "Respond in English."
+        : "Use the business default language when clear; otherwise use Swedish.";
+  const tone =
+    style.tone === "warm"
+      ? "Use a warm, concise service tone."
+      : style.tone === "formal"
+        ? "Use a formal, concise service tone."
+        : "Use a neutral, concise service tone.";
+  return ` ${language} ${tone}`;
+}
 
 type BaseOrchestrationResult =
   | {
@@ -256,6 +281,15 @@ export function parseModelToolRequest(value: unknown): ParsedToolRequest {
         };
       }
       break;
+    case "business.profile":
+    case "business.hours":
+      if (hasOnlyKeys(args, [])) {
+        return {
+          ok: true,
+          request: { toolName: request.toolName, args: {} },
+        };
+      }
+      break;
     case "booking.create":
       if (
         hasOnlyKeys(
@@ -414,7 +448,9 @@ async function runLoop(input: {
     let modelOutput;
     try {
       modelOutput = await input.adapter.generate({
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction:
+          SYSTEM_INSTRUCTION +
+          responseStyleInstruction(input.context.responseStyle),
         conversation: input.context.conversation,
         messages: input.context.messages,
         toolDefinitions: APPROVED_TOOL_DEFINITIONS.map(
@@ -515,6 +551,20 @@ async function runLoop(input: {
     }
 
     executedTools.push({ name: definition.name, kind: definition.kind });
+    if (execution.kind === "terminal") {
+      const response = normalizedFinalText(execution.response);
+      if (response === null) {
+        return {
+          ok: false,
+          error: {
+            code: "invalid_model_output",
+            message: "The server response could not be completed safely.",
+          },
+          executedTools,
+        };
+      }
+      return { ok: true, response, executedTools };
+    }
     // A write is terminal. No provider round, retry, or second write follows it.
     if (definition.kind === "write") {
       return {
@@ -556,10 +606,7 @@ export type RunMetadata = {
   mode: "fake" | "live";
   responsePersistence?: "saved" | "failed" | "not_attempted";
   providerFailure?:
-    | "configuration"
-    | "timeout"
-    | "provider_error"
-    | "malformed_response";
+    "configuration" | "timeout" | "provider_error" | "malformed_response";
   latencyMs: number;
   modelTimeMs: number;
   modelCalls: number;
@@ -569,6 +616,8 @@ export type RunMetadata = {
     | "answered"
     | "action_succeeded"
     | "escalated"
+    | "confirmation_required"
+    | "human_required"
     | "action_failed"
     | "action_uncertain"
     | "provider_failure"
@@ -634,27 +683,38 @@ export async function runOrchestrationLoop(
       }
       const isWrite =
         getApprovedToolDefinition(request.toolName)?.kind === "write";
-      const outcome = isWrite
-        ? actionOutcome(
-            request.toolName,
-            execution.kind === "completed" ? execution.result : null,
-            execution.kind === "uncertain",
-          )
-        : execution.kind === "uncertain"
-          ? "uncertain"
-          : asRecord(execution.result)?.ok === true
-            ? "success"
-            : "failure";
+      const outcome =
+        execution.kind === "terminal"
+          ? "success"
+          : isWrite
+            ? actionOutcome(
+                request.toolName,
+                execution.kind === "completed" ? execution.result : null,
+                execution.kind === "uncertain",
+              )
+            : execution.kind === "uncertain"
+              ? "uncertain"
+              : asRecord(execution.result)?.ok === true
+                ? "success"
+                : "failure";
       metadata.tools.push({ name: request.toolName, outcome });
       if (getApprovedToolDefinition(request.toolName)?.kind === "write") {
+        const policyCode =
+          execution.kind === "completed"
+            ? asRecord(asRecord(execution.result)?.error)?.code
+            : undefined;
         metadata.outcome =
-          outcome === "uncertain"
-            ? "action_uncertain"
-            : outcome === "failure"
-              ? "action_failed"
-              : request.toolName === "human.escalate"
-                ? "escalated"
-                : "action_succeeded";
+          policyCode === "needs_customer_confirmation"
+            ? "confirmation_required"
+            : policyCode === "needs_human"
+              ? "human_required"
+              : outcome === "uncertain"
+                ? "action_uncertain"
+                : outcome === "failure"
+                  ? "action_failed"
+                  : request.toolName === "human.escalate"
+                    ? "escalated"
+                    : "action_succeeded";
       }
       return execution;
     },

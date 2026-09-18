@@ -104,3 +104,11 @@ export async function requireCurrentTenant(ctx: TenantContext): Promise<{
     role: activeOrganization.role,
   };
 }
+
+export async function requireCurrentTenantAdmin(ctx: TenantContext) {
+  const tenant = await requireCurrentTenant(ctx);
+  if (tenant.role !== "org:admin") {
+    throw new Error("Organization administrator access is required");
+  }
+  return tenant;
+}

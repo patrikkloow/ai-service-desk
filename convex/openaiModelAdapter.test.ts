@@ -132,7 +132,7 @@ describe("provider normalization / controlled failures", () => {
       type: "function_call_output",
       call_id: "call_synthetic",
     });
-    expect(body.tools).toHaveLength(9);
+    expect(body.tools).toHaveLength(11);
     expect(
       body.tools.every(
         (tool: {

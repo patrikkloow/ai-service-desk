@@ -3,6 +3,7 @@ import {
   getActiveClerkOrganization,
   requireAuthenticatedIdentity,
 } from "./tenant";
+import { ensureTenantConfiguration } from "./configuration";
 
 /**
  * Creates the local application records for the verified active Clerk tenant.
@@ -58,6 +59,12 @@ export const ensureCurrentTenant = mutation({
         ...(identity.email ? { email: identity.email } : {}),
       });
     }
+
+    await ensureTenantConfiguration(
+      ctx,
+      organization,
+      identity.tokenIdentifier,
+    );
 
     return {
       organizationId: organization._id,

@@ -1,2 +1,39 @@
 import Link from "next/link";
-export default function Page() { return <div className="space-y-6"><header><h1 className="text-3xl font-semibold tracking-tight">Inställningar</h1><p className="mt-2 text-muted-foreground">Uppgifter som hjälper er att ge kunderna rätt svar.</p></header><div className="grid max-w-3xl gap-4 sm:grid-cols-2">{[["services", "Tjänster & priser", "Hantera erbjudanden, priser och tidsåtgång."], ["knowledge", "Kunskap", "Spara vanliga frågor och företagets riktlinjer."]].map(([path,title,copy]) => <Link className="rounded-xl border bg-card p-6 hover:border-foreground/40" href={`/settings/${path}`} key={path}><h2 className="font-semibold">{title} →</h2><p className="mt-2 text-sm text-muted-foreground">{copy}</p></Link>)}</div></div>; }
+export default function Page() {
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-3xl font-semibold tracking-tight">Inställningar</h1>
+        <p className="mt-2 text-muted-foreground">
+          Uppgifter som hjälper er att ge kunderna rätt svar.
+        </p>
+      </header>
+      <div className="grid max-w-4xl gap-4 sm:grid-cols-2">
+        {[
+          ["business", "Företag", "Namn, kontaktuppgifter, språk och tidszon."],
+          ["hours", "Öppettider", "Veckans vanliga öppettider."],
+          ["ai", "AI", "Åtgärdsregler, språk och ton."],
+          [
+            "services",
+            "Tjänster & priser",
+            "Hantera erbjudanden, priser och tidsåtgång.",
+          ],
+          [
+            "knowledge",
+            "Kunskap",
+            "Spara vanliga frågor och företagets riktlinjer.",
+          ],
+        ].map(([path, title, copy]) => (
+          <Link
+            className="rounded-xl border bg-card p-6 hover:border-foreground/40"
+            href={`/settings/${path}`}
+            key={path}
+          >
+            <h2 className="font-semibold">{title} →</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{copy}</p>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}

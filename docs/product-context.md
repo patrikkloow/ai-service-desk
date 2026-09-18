@@ -1,6 +1,6 @@
 # AI Service Desk — product context
 
-Updated: 2026-09-17 for Milestone 10, built from `main` at `96212a0`. “CURRENT” describes this milestone branch, not production readiness. “PLANNED” is a product decision or future direction, not an existing feature.
+Updated: 2026-09-18 for Milestone 11, built from `main` at `e95ac79`. “CURRENT” describes this milestone branch, not production readiness. “PLANNED” is a product decision or future direction, not an existing feature.
 
 ## Product and market
 
@@ -12,21 +12,21 @@ The product should reduce missed customer contacts and staff workload while maki
 
 ## Shared domain vocabulary
 
-| Concept | Responsibility and status |
-| --- | --- |
-| Organizations | CURRENT: tenant boundary, linked to a Clerk organization. |
-| Users / Roles | CURRENT: Clerk identity, membership and roles; minimal local user projection. Roles accepted today: `org:admin`, `org:member`. |
-| Customers | CURRENT: tenant-owned people or business customers, optional contact details. |
-| Services | CURRENT: structured offerings, optional duration, explicit pricing. |
-| Conversation | CURRENT: channel-agnostic interaction history, with messages and activity events. |
-| Service Request | CURRENT: minimal primary work object with structured wants/known/missing summary, lifecycle, attention and next action, plus optional customer/service/conversation/booking links. Full intake-to-quote workflow remains PLANNED. |
-| Case | CURRENT backend; secondary product role: exception/support/attention object for matters outside the Service Request flow or internal follow-up. |
-| Inbox | CURRENT: Swedish attention queue and detail view centered on Service Requests, plus unlinked Cases; acknowledgment, attention resolution and deterministic handoff context. |
-| Knowledge | CURRENT: tenant-owned FAQ/policy text and search; structured Services remain the pricing source. |
-| Bookings | CURRENT: internal bookings and basic conflict checks. Resources, calendar UX and external providers are PLANNED. |
-| Workflows | PLANNED: general event/trigger/action behavior; no workflow engine exists. |
-| AI Configuration | PLANNED: tenant language, tone, enabled tools, autonomy and handoff policies; current orchestrator uses a fixed server instruction. |
-| Integrations | PLANNED: business-system and channel adapters; no production channel integration exists on main. |
+| Concept                     | Responsibility and status                                                                                                                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organizations               | CURRENT: tenant boundary, linked to a Clerk organization.                                                                                                                                                                                                                                   |
+| Users / Roles               | CURRENT: Clerk identity, membership and roles; minimal local user projection. Roles accepted today: `org:admin`, `org:member`.                                                                                                                                                              |
+| Customers                   | CURRENT: tenant-owned people or business customers, optional contact details.                                                                                                                                                                                                               |
+| Services                    | CURRENT: structured offerings, optional duration, explicit pricing.                                                                                                                                                                                                                         |
+| Conversation                | CURRENT: channel-agnostic interaction history, with messages and activity events.                                                                                                                                                                                                           |
+| Service Request             | CURRENT: minimal primary work object with structured wants/known/missing summary, lifecycle, attention and next action, plus optional customer/service/conversation/booking links. Full intake-to-quote workflow remains PLANNED.                                                           |
+| Case                        | CURRENT backend; secondary product role: exception/support/attention object for matters outside the Service Request flow or internal follow-up.                                                                                                                                             |
+| Inbox                       | CURRENT: Swedish attention queue and detail view centered on Service Requests, plus unlinked Cases; acknowledgment, attention resolution and deterministic handoff context.                                                                                                                 |
+| Knowledge                   | CURRENT: tenant-owned FAQ/policy text and search; structured Services remain the pricing source.                                                                                                                                                                                            |
+| Bookings                    | CURRENT: internal bookings and basic conflict checks. Resources, calendar UX and external providers are PLANNED.                                                                                                                                                                            |
+| Workflows                   | PLANNED: general event/trigger/action behavior; no workflow engine exists.                                                                                                                                                                                                                  |
+| Business / AI Configuration | CURRENT: tenant business identity/contact details, timezone/default language, ordinary weekly hours, bounded response language/tone, and server-enforced action policies for booking/case writes. Advanced booking rules, enabled-tool policy and free-text AI instructions remain PLANNED. |
+| Integrations                | PLANNED: business-system and channel adapters; no production channel integration exists on main.                                                                                                                                                                                            |
 
 ## Service Request principle — minimal core CURRENT; full flow PLANNED
 
@@ -49,7 +49,7 @@ Estimate/Quote handling, structured intake templates and Required Checks remain 
 ## Product UX direction — M9 foundation CURRENT; broader UX PLANNED
 
 - Make daily operation simple for nontechnical owners and staff. Use progressive complexity: useful defaults first, advanced configuration only when needed. Mobile-first, with a single-pane request detail on phones and an efficient list/detail layout on desktop.
-- Use one Inbox across channels as an exception/next-action work surface, not merely a chronological message list. Inbox shows only Service Requests needing attention plus genuine standalone Cases/exceptions; Förfrågningar shows all Service Requests throughout their lifecycle. The authenticated product shell also provides a minimal real-data Overview, Kalender, Kunder and Inställningar. Service Requests are called “förfrågningar”; standalone Cases are secondary “uppföljningar”. Development consoles are separate under `/dev`, server-gated to authenticated development mode and absent from operator navigation.
+- Use one Inbox across channels as an exception/next-action work surface, not merely a chronological message list. Inbox shows only Service Requests needing attention plus genuine standalone Cases/exceptions; Förfrågningar shows all Service Requests throughout their lifecycle. The authenticated product shell also provides a minimal real-data Overview, Kalender, Kunder and Inställningar. Settings now includes Business profile, ordinary opening hours and AI policy pages alongside Services and Knowledge. Service Requests are called “förfrågningar”; standalone Cases are secondary “uppföljningar”. Development consoles are separate under `/dev`, server-gated to authenticated development mode and absent from operator navigation.
 - Give staff a concise AI handoff summary: what the customer wants, what AI collected/did, missing information/checks, preliminary price/estimate when allowed, why human attention is needed and the recommended next action. Preserve the same Service Request through handoff where possible.
 - Make booking feel like a calendar: day/week views, understandable appointments and eventually resource columns. Do not expose database IDs or raw timestamps as the workflow.
 - Explain AI activity in everyday language: “Checked availability” and “Created booking,” with traceable outcomes. Do not show raw tool arguments or prompts.
@@ -57,7 +57,7 @@ Estimate/Quote handling, structured intake templates and Required Checks remain 
 - Give each channel a clear setup/status/test flow, including when AI should answer and how staff can take over. Adapt navigation to capabilities and user permissions; backend checks remain mandatory.
 - Establish shadcn/ui as the component foundation with our own typography, spacing, density, status language and product identity. Follow existing project conventions; avoid unnecessary component-framework migrations. CURRENT on this branch: a minimal shadcn/ui Radix foundation with Tailwind 4, restrained shared styling, Sidebar, Tabs, Collapsible, Empty, Tooltip and Scroll Area.
 
-## Commercial and AI boundaries — PLANNED
+## Commercial and AI boundaries — CURRENT and PLANNED
 
 Clerk owns authentication, organizations, memberships and roles. Stripe direct is the billing/subscription direction; Clerk Billing is not the chosen billing architecture. Our own entitlement/capability layer translates plans into product features. Keep Stripe product/price IDs inside the billing integration, not scattered through business logic. Billing and entitlements are not implemented.
 
@@ -67,7 +67,7 @@ ElevenLabs is voice infrastructure, not the AI business-logic brain. Our orchest
 
 Booking will support a general Resources model (staff, rooms, equipment) and a booking-provider abstraction. Internal and external booking systems should expose the same AI tool contract; the organization selects the provider. Do not introduce industry-specific resource tables as the general model.
 
-AI autonomy will distinguish read/free actions, writes requiring explicit customer confirmation, and actions requiring a human. Exact policies will be tenant-configurable and enforced by server logic. These confirmation/policy mechanisms are not implemented. Read/write classification exists today but is not a partial customer-confirmation/consent engine. Pilot direction is observe/draft mode, then safe automation before wider autonomy.
+AI autonomy distinguishes allowed actions, actions requiring verified customer confirmation and actions requiring a human. M11 stores a small per-tenant policy matrix and enforces it in the server orchestrator before Tool Layer writes. Human-required actions use the existing duplicate-resistant escalation path. Confirmation-required actions remain blocked because a trusted external customer-session confirmation signal does not exist until later channel work; model text, client flags and conversation content cannot satisfy this requirement. `human.escalate` remains always available. Pilot direction is observe/draft mode, then safe automation before wider autonomy.
 
 ## How coding agents should use these docs
 
@@ -97,4 +97,14 @@ Action confirmations are composed by the server from successful Tool Layer resul
 
 `npm run eval:ai` runs offline reliability scenarios across knowledge, prices, availability, writes, handoff, malicious calls, isolation, provider failures and Swedish responses. `npm run eval:ai:live` is an optional synthetic, read-only OpenAI smoke; paid/network calls are not a CI requirement. Offline scripts validate orchestration and server enforcement, not a real model's ability to understand every customer request. Knowledge relevance, selecting the right service/time/record, and overall conversational quality still require live evaluation and staff acceptance.
 
-M10 is complete for this scoped implementation; real-provider smoke is unverified because no local provider key was available. Customer consent/autonomy policies (M11), external-customer target-record authorization, durable idempotency and real channel takeover remain future work. This is not approval to enable autonomous customer-facing writes.
+M10 is complete for this scoped implementation; real-provider smoke is unverified because no local provider key was available. External-customer target-record authorization, durable idempotency and real channel takeover remain future work. This is not approval to enable autonomous customer-facing writes.
+
+## CURRENT — M11 business configuration and AI policies
+
+Each tenant receives separate Business Profile, Business Hours and AI Policy records during repeat-safe tenant bootstrap. Members can read settings; only verified `org:admin` users can change them. Business identity includes company name, timezone, default language and optional contact/address/description fields. Weekly hours support closed days and multiple non-overlapping intervals. They describe ordinary opening hours only: availability, booking conflicts, capacity and later holiday/buffer/resource rules remain separate domain concerns.
+
+The AI can answer business-profile and opening-hours questions through explicit read tools. The provider sees only the fixed tool definitions. After selecting one, the server renders the authorized tenant configuration and ends the turn; tenant-authored profile text is never replayed to the provider or inserted into system instructions. Response language (`business default`, Swedish or English) and tone (`neutral`, `warm` or `formal`) are bounded enums translated into fixed server wording. There is no free-text tenant instruction field.
+
+The action-policy matrix covers booking create/reschedule/cancel and ordinary case creation with `allow`, `confirm` or `human` choices. Safe bootstrap defaults require confirmation for create/reschedule, human handling for cancellation and allow ordinary case creation. Missing, malformed or unknown policy data fails to human handling. Policy stops produce deterministic customer text and PII-safe outcome categories; only allowed actions reach their existing Tool Layer operations. Configuration audit events record domain, action, verified actor and timestamp without copied field values.
+
+M11 is complete for this scoped authenticated configuration foundation. It does not add an external customer identity/consent boundary, automatic holiday/calendar enforcement, booking buffers/resources, channel sessions, free-text AI instructions, production deployment, or full onboarding. M12 must establish trusted channel/session identity before confirmation-required customer writes can be enabled.

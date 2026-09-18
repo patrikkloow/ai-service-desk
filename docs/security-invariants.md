@@ -1,6 +1,6 @@
 # Security invariants
 
-These MUST/MUST NOT rules govern new work and preservation of existing boundaries. They are not a claim that every future subsystem exists. Updated implementation: Milestone 10 based on main `96212a0`, 2026-09-17; see [architecture.md](architecture.md) for current limits.
+These MUST/MUST NOT rules govern new work and preservation of existing boundaries. They are not a claim that every future subsystem exists. Updated implementation: Milestone 11 based on main `e95ac79`, 2026-09-18; see [architecture.md](architecture.md) for current limits.
 
 ## Tenant identity and authorization
 
@@ -20,7 +20,7 @@ These MUST/MUST NOT rules govern new work and preservation of existing boundarie
 - AI MUST NOT claim an action/write succeeded without a successful tool/backend result confirming it. CURRENT enforcement: arbitrary model final prose is not published. The server composes write confirmations only from successful server results with matching references/status, and ends the turn after a write attempt. Structured read finalization validates current-turn evidence; knowledge is an attributed excerpt, not action/price authority. Relevance, source correctness and intent matching are not generically semantically verified.
 - Unknown business facts/prices MUST NOT be invented; use structured Services for pricing and Knowledge for policies/FAQ. Future Estimates MUST be clearly preliminary and disclose relevant assumptions; AI MUST NOT silently present an Estimate as a binding Quote.
 - Bounded context and tool iteration limits MUST be preserved. Future adapters MUST preserve safe errors and MUST NOT expose prompts, raw exceptions or hidden context to clients.
-- New autonomous write behavior MUST enforce the chosen customer-confirmation/human-required policy server-side. The read/write tool distinction MUST NOT be treated as proof of customer consent. Configurable confirmation policies are still planned.
+- Autonomous AI write behavior MUST enforce the tenant's customer-confirmation/human-required policy server-side. The read/write tool distinction, model output, client flags and conversation text MUST NOT be treated as proof of customer consent. Until trusted confirmation evidence exists, confirmation-required actions MUST remain blocked.
 
 ## Writes, retries and provenance
 
@@ -58,4 +58,15 @@ For relevant code changes, test unauthorized access, multiple tenants, foreign r
 - Authoritative write text MUST come only from successful tool results; free-form model text MUST NOT bypass the server renderer, including turns with no tool calls. Failed and uncertain outcomes MUST remain distinct from success. Do not relax this to prompt instructions or a keyword blacklist.
 - Provider requests MUST have a bounded deadline/abort, bounded response body and no automatic retries. A write is terminal even when its outcome is uncertain. This is not a consent/policy engine or durable idempotency solution.
 - Logs and console metadata MUST remain allowlisted: provider/model/mode, timing/counts, tool names/outcomes, controlled failure category and response-persistence status. Raw messages/results/arguments, contact data, entity references, credentials and hidden reasoning MUST NOT be added to diagnostics. Business conversation storage remains separate.
-- M10 retains authenticated staff authority. No external customer target-record authorization, fine-grained role matrix, live pause/resume or M11 autonomy policy is implied. Successful tool execution proves the backend result, not that a model selected the correct customer intent/record/time.
+- M10 retains authenticated staff authority. No external customer target-record authorization, fine-grained role matrix or live pause/resume is implied. Successful tool execution proves the backend result, not that a model selected the correct customer intent/record/time.
+
+## M11 configuration and autonomy policy boundary
+
+- Business Profile, Business Hours and AI Policy records MUST remain tenant-scoped and resolved from verified server context. Configuration mutation authority MUST come from the verified `org:admin` role. UI visibility or disabled controls MUST NOT replace the backend role check.
+- Missing, malformed or unknown action policy MUST fail to human handling. `human.escalate` MUST remain available as the safe fallback. A human-required policy may create/reuse the existing escalation record, but MUST NOT execute the original requested write or claim that staff have taken over.
+- Confirmation-required actions MUST NOT execute until a later trusted channel/session boundary supplies verified confirmation evidence. Model/client-provided confirmation fields MUST be rejected as extra authority-bearing arguments. Current M11 behavior asks for confirmation but records no trusted confirmation state.
+- `allow` policy MUST only authorize dispatch to the existing registered Tool Layer operation. Policy evaluation MUST NOT create arbitrary database/function dispatch or bypass domain ownership, validation, conflict and grounded-response checks.
+- Tenant-authored profile descriptions, contact data and opening hours MUST be treated as untrusted business data. Current provider requests MUST receive only fixed tool descriptions and bounded enum-derived style instructions; raw configuration values MUST NOT be inserted into system instructions, diagnostic logs or provider result replay.
+- Ordinary Business Hours MUST NOT be treated as verified availability. Booking claims still require `availability.check`; holiday, resource, buffer, notice and external-provider rules remain separate future controls.
+- Configuration audit events MUST stay minimal: tenant, domain, action, verified actor identifier and timestamp. They MUST NOT copy contact fields, descriptions, schedules, policy values or other unnecessary tenant content.
+- M11 policy protects AI orchestration, not direct staff operations or future public-channel authorization. External customer actions still require target-record authorization in addition to tenant/session routing and autonomy policy.
