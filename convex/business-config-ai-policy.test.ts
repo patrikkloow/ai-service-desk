@@ -322,6 +322,7 @@ describe("AI policy and trusted confirmation boundary", () => {
 
   test("human policy creates duplicate-resistant handoff without executing cancellation", async () => {
     const { adminA } = await setup();
+    await adminA.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
     const customerId = await adminA.mutation(api.customers.create, {
       name: "Testkund",
     });
@@ -371,6 +372,7 @@ describe("AI policy and trusted confirmation boundary", () => {
 
   test("explicit allow executes through existing tools and keeps grounded confirmation", async () => {
     const { adminA } = await setup();
+    await adminA.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
     await adminA.mutation(api.aiPolicy.update, {
       actions: {
         bookingCreate: "allow",

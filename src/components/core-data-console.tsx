@@ -5,11 +5,52 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useTenantProvisioning } from "./tenant-bootstrap";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type PriceKind = "not_specified" | "fixed" | "from";
 
 function errorMessage(): string {
   return "Ändringen kunde inte sparas. Kontrollera uppgifterna och försök igen.";
+}
+
+function serviceDeleteMessage(reason: unknown): string {
+  const data =
+    typeof reason === "object" && reason !== null && "data" in reason
+      ? (reason as { data?: unknown }).data
+      : null;
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "code" in data &&
+    data.code === "SERVICE_IN_USE"
+  ) {
+    const references =
+      "references" in data && Array.isArray(data.references)
+        ? data.references
+        : [];
+    const labels = references.map((reference) =>
+      reference === "bookings"
+        ? "bokningshistorik"
+        : reference === "service_requests"
+          ? "förfrågningar"
+          : "resurskopplingar",
+    );
+    return `Tjänsten kan inte tas bort eftersom den används av ${labels.join(
+      ", ",
+    ) || "verksamhetsdata"}. Inaktivera den i stället.`;
+  }
+  const message = reason instanceof Error ? reason.message : "";
+  if (message.includes("administrator"))
+    return "Endast en administratör kan ta bort en tjänst permanent.";
+  return "Tjänsten kunde inte tas bort. Inaktivera den om den inte längre ska användas.";
 }
 
 function formatPrice(pricing: {
@@ -46,6 +87,7 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   const createService = useMutation(api.services.create);
   const updateService = useMutation(api.services.update);
   const setServiceStatus = useMutation(api.services.setStatus);
+  const removeService = useMutation(api.services.remove);
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -57,6 +99,16 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   const [currency, setCurrency] = useState("SEK");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<Id<"services"> | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editDuration, setEditDuration] = useState("");
+  const [editPriceKind, setEditPriceKind] = useState<PriceKind>("not_specified");
+  const [editPriceAmount, setEditPriceAmount] = useState("");
+  const [editCurrency, setEditCurrency] = useState("SEK");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBlocked, setDeleteBlocked] = useState<string | null>(null);
+  const editingService = services?.find((service) => service._id === editingServiceId) ?? null;
 
   if (!isReady) {
     return (
@@ -149,20 +201,72 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
     }
   }
 
-  async function renameService(
-    serviceId: Id<"services">,
-    currentName: string,
-  ) {
-    const name = window.prompt("Tjänstens namn", currentName);
+  function openServiceEditor(service: NonNullable<typeof services>[number]) {
+    setEditingServiceId(service._id);
+    setEditName(service.name);
+    setEditDescription(service.description ?? "");
+    setEditDuration(service.durationMinutes?.toString() ?? "");
+    setEditPriceKind(service.pricing.kind);
+    setEditPriceAmount(
+      service.pricing.kind === "not_specified"
+        ? ""
+        : (service.pricing.amountMinor / 100).toFixed(2),
+    );
+    setEditCurrency(
+      service.pricing.kind === "not_specified" ? "SEK" : service.pricing.currency,
+    );
+    setDeleteBlocked(null);
+  }
 
-    if (name === null) {
+  async function saveService(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editingServiceId) return;
+    const duration = editDuration.trim() ? Number(editDuration) : null;
+    const amountMinor = editPriceAmount.trim()
+      ? Math.round(Number(editPriceAmount) * 100)
+      : undefined;
+    if (
+      (duration !== null && !Number.isSafeInteger(duration)) ||
+      (editPriceKind !== "not_specified" &&
+        (amountMinor === undefined || !Number.isSafeInteger(amountMinor)))
+    ) {
+      setError("Ange hela minuter och ett giltigt pris.");
       return;
     }
-
+    setBusy(true);
+    setError(null);
     try {
-      await updateService({ serviceId, name });
+      await updateService({
+        serviceId: editingServiceId,
+        name: editName,
+        description: editDescription || null,
+        durationMinutes: duration,
+        pricing:
+          editPriceKind === "not_specified"
+            ? { kind: "not_specified" }
+            : { kind: editPriceKind, amountMinor: amountMinor!, currency: editCurrency },
+      });
+      setEditingServiceId(null);
     } catch {
       setError(errorMessage());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteServicePermanently() {
+    if (!editingServiceId) return;
+    setBusy(true);
+    setDeleteBlocked(null);
+    try {
+      await removeService({ serviceId: editingServiceId });
+      setConfirmDelete(false);
+      setEditingServiceId(null);
+    } catch (reason) {
+      setConfirmDelete(false);
+      setDeleteBlocked(serviceDeleteMessage(reason));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -259,11 +363,11 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
             placeholder="Beskrivning (valfritt)"
             value={serviceDescription}
           /></label>
-          <label className="grid min-w-0 gap-2 text-sm">Tidsåtgång i minuter (valfritt)<input
+          <label className="grid min-w-0 gap-2 text-sm">Tidsåtgång i minuter<input
             className="rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700"
             min="0"
             onChange={(event) => setServiceDuration(event.target.value)}
-            placeholder="Tidsåtgång i minuter (valfritt)"
+            placeholder="Krävs för bokningsbara tjänster"
             type="number"
             value={serviceDuration}
           /></label>
@@ -315,17 +419,17 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
                   {formatPrice(service.pricing)}
                   {service.durationMinutes !== undefined
                     ? ` · ${service.durationMinutes} min`
-                    : ""}
+                    : " · Inte bokningsklar"}
                   {service.status === "active" ? " · Aktiv" : " · Inaktiv"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   className="min-h-11 px-2 text-sm underline"
-                  onClick={() => void renameService(service._id, service.name)}
+                  onClick={() => openServiceEditor(service)}
                   type="button"
                 >
-                  Byt namn
+                  Redigera
                 </button>
                 <button
                   className="min-h-11 px-2 text-sm text-red-700 underline dark:text-red-300"
@@ -345,6 +449,52 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
           ))}
         </ul>
       </section>}
+
+      <Dialog
+        open={editingService !== null}
+        onOpenChange={(open) => !busy && !open && setEditingServiceId(null)}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Redigera tjänst</DialogTitle>
+            <DialogDescription>
+              Tidsåtgång krävs för bokningsbara tjänster men kan lämnas tom för informationstjänster.
+            </DialogDescription>
+          </DialogHeader>
+          {editingService ? (
+            <form className="grid gap-4" onSubmit={saveService}>
+              <label className="grid gap-2 text-sm">Namn<input className="rounded-md border px-3 py-2" onChange={(event) => setEditName(event.target.value)} required value={editName} /></label>
+              <label className="grid gap-2 text-sm">Beskrivning (valfritt)<textarea className="rounded-md border px-3 py-2" onChange={(event) => setEditDescription(event.target.value)} value={editDescription} /></label>
+              <label className="grid gap-2 text-sm">Tidsåtgång i minuter<input className="rounded-md border px-3 py-2" min="0" onChange={(event) => setEditDuration(event.target.value)} placeholder="Krävs för bokningsbara tjänster" type="number" value={editDuration} /></label>
+              <select aria-label="Pristyp" className="rounded-md border px-3 py-2" onChange={(event) => setEditPriceKind(event.target.value as PriceKind)} value={editPriceKind}>
+                <option value="not_specified">Pris ej angivet</option><option value="fixed">Fast pris</option><option value="from">Frånpris</option>
+              </select>
+              {editPriceKind !== "not_specified" ? <div className="grid grid-cols-2 gap-3">
+                <label className="grid gap-2 text-sm">Pris<input className="rounded-md border px-3 py-2" min="0" onChange={(event) => setEditPriceAmount(event.target.value)} required step="0.01" type="number" value={editPriceAmount} /></label>
+                <label className="grid gap-2 text-sm">Valuta<input className="rounded-md border px-3 py-2" maxLength={3} onChange={(event) => setEditCurrency(event.target.value)} required value={editCurrency} /></label>
+              </div> : null}
+              {deleteBlocked ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+                <p>{deleteBlocked}</p>
+                {editingService.status === "active" ? <Button className="mt-3" onClick={() => void setServiceStatus({ serviceId: editingService._id, status: "inactive" }).then(() => setEditingServiceId(null)).catch(() => setError(errorMessage()))} type="button" variant="outline">Inaktivera i stället</Button> : null}
+              </div> : null}
+              <DialogFooter className="gap-2 sm:justify-between">
+                <Button onClick={() => setConfirmDelete(true)} type="button" variant="destructive">Ta bort tjänst</Button>
+                <Button disabled={busy} type="submit">{busy ? "Sparar…" : "Spara ändringar"}</Button>
+              </DialogFooter>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDelete} onOpenChange={(open) => !busy && setConfirmDelete(open)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Ta bort tjänsten permanent?</DialogTitle><DialogDescription>Det går bara om tjänsten aldrig har använts av en bokning, förfrågan eller resurskoppling. Åtgärden kan inte ångras.</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button disabled={busy} onClick={() => setConfirmDelete(false)} variant="outline">Behåll tjänsten</Button>
+            <Button disabled={busy} onClick={() => void deleteServicePermanently()} variant="destructive">{busy ? "Tar bort…" : "Ta bort tjänst"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

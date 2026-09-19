@@ -35,6 +35,8 @@ async function setup() {
   await admin.mutation(api.tenants.ensureCurrentTenant, {});
   await member.mutation(api.tenants.ensureCurrentTenant, {});
   await foreignAdmin.mutation(api.tenants.ensureCurrentTenant, {});
+  await admin.mutation(api.businessHours.update, { schedule: WORK_WEEK });
+  await foreignAdmin.mutation(api.businessHours.update, { schedule: WORK_WEEK });
   const customer = await admin.mutation(api.customers.create, {
     name: "Testkund",
   });
@@ -190,7 +192,7 @@ describe("booking system v1", () => {
         startTime: mondayTen - 2 * hour,
         endTime: mondayTen - hour,
       }),
-    ).rejects.toThrow("outside_schedule");
+    ).rejects.toThrow("outside_business_hours");
     await admin.mutation(api.resources.update, {
       resourceId: resourceB,
       status: "inactive",
@@ -386,6 +388,103 @@ describe("booking system v1", () => {
     ).toHaveLength(0);
   });
 
+  test("staff schedule overrides require confirmation, are audited, and AI-domain paths remain strict", async () => {
+    const { t, member, customer, service, resourceA } = await setup();
+    const outsideStart = mondayTen - 2 * hour;
+    const input = {
+      idempotencyKey: "staff-override-000001",
+      customer: { kind: "existing" as const, customerId: customer },
+      serviceId: service,
+      resourceId: resourceA,
+      startTime: outsideStart,
+      endTime: outsideStart + hour,
+    };
+    await expect(
+      member.mutation(api.calendarBookings.create, input),
+    ).rejects.toThrow("SCHEDULE_OVERRIDE_REQUIRED");
+    await expect(
+      member.mutation(api.bookings.create, {
+        customerId: customer,
+        serviceId: service,
+        resourceId: resourceA,
+        startTime: outsideStart,
+        endTime: outsideStart + hour,
+      }),
+    ).rejects.toThrow("outside_business_hours");
+    const bookingId = await member.mutation(api.calendarBookings.create, {
+      ...input,
+      confirmScheduleOverride: true,
+    });
+    const created = await member.query(api.bookings.get, { bookingId });
+    const earlier = outsideStart - hour;
+    await expect(
+      member.mutation(api.calendarBookings.reschedule, {
+        bookingId,
+        resourceId: resourceA,
+        startTime: earlier,
+        endTime: earlier + hour,
+        expectedUpdatedAt: created!.updatedAt,
+      }),
+    ).rejects.toThrow("SCHEDULE_OVERRIDE_REQUIRED");
+    await member.mutation(api.calendarBookings.reschedule, {
+      bookingId,
+      resourceId: resourceA,
+      startTime: earlier,
+      endTime: earlier + hour,
+      expectedUpdatedAt: created!.updatedAt,
+      confirmScheduleOverride: true,
+    });
+    expect(await t.run((ctx) => ctx.db.query("bookingEvents").collect())).toEqual([
+      expect.objectContaining({
+        bookingId,
+        resourceId: resourceA,
+        action: "schedule_override_created",
+        actor: "https://clerk.test|member_a",
+      }),
+      expect.objectContaining({
+        bookingId,
+        resourceId: resourceA,
+        action: "schedule_override_rescheduled",
+        actor: "https://clerk.test|member_a",
+      }),
+    ]);
+  });
+
+  test("calendar reschedule rejects stale writes", async () => {
+    const { t, admin, customer, service, resourceA } = await setup();
+    const bookingId = await admin.mutation(api.bookings.create, {
+      customerId: customer,
+      serviceId: service,
+      resourceId: resourceA,
+      startTime: mondayTen,
+      endTime: mondayTen + hour,
+    });
+    const booking = await admin.query(api.bookings.get, { bookingId });
+    await admin.mutation(api.calendarBookings.reschedule, {
+      bookingId,
+      resourceId: resourceA,
+      startTime: mondayTen + hour,
+      endTime: mondayTen + 2 * hour,
+      expectedUpdatedAt: booking!.updatedAt,
+    });
+    const moved = await admin.query(api.bookings.get, { bookingId });
+    expect(moved).toMatchObject({
+      startTime: mondayTen + hour,
+      endTime: mondayTen + 2 * hour,
+      resourceId: resourceA,
+    });
+    await t.run((ctx) => ctx.db.patch(bookingId, { updatedAt: moved!.updatedAt + 1 }));
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, {
+        bookingId,
+        resourceId: resourceA,
+        startTime: mondayTen + hour,
+        endTime: mondayTen + 2 * hour,
+        expectedUpdatedAt: moved!.updatedAt,
+      }),
+    ).rejects.toThrow("BOOKING_CHANGED");
+  });
+
   test("bounded calendar ranges include leading overlaps and more than 100 records", async () => {
     const { t, admin, customer, service, resourceA } = await setup();
     const organizationId = (
@@ -415,10 +514,17 @@ describe("booking system v1", () => {
     const records = await admin.query(api.calendarBookings.listRange, {
       startTime: rangeStart,
       endTime: rangeStart + 8 * 24 * hour,
+      includeCancelled: true,
     });
     expect(records).toHaveLength(105);
     expect(records.every((booking) => booking.startTime < rangeStart)).toBe(
       true,
     );
+    expect(
+      await admin.query(api.calendarBookings.listRange, {
+        startTime: rangeStart,
+        endTime: rangeStart + 8 * 24 * hour,
+      }),
+    ).toHaveLength(0);
   });
 });

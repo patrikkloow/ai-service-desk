@@ -1,8 +1,8 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireCurrentTenant } from "./tenant";
+import { requireCurrentTenant, requireCurrentTenantAdmin } from "./tenant";
 
 const serviceStatus = v.union(v.literal("active"), v.literal("inactive"));
 const pricing = v.union(
@@ -248,5 +248,55 @@ export const setStatus = mutation({
       status: args.status,
       updatedAt: Date.now(),
     });
+  },
+});
+
+/** Permanently removes only a tenant-owned service with no business history. */
+export const remove = mutation({
+  args: { serviceId: v.id("services") },
+  handler: async (ctx, args) => {
+    const tenant = await requireCurrentTenantAdmin(ctx);
+    const service = await ctx.db.get(args.serviceId);
+    if (!service || service.organizationId !== tenant.organization._id) {
+      throw new Error("Service is unavailable");
+    }
+
+    const [booking, request, resourceLink] = await Promise.all([
+      ctx.db
+        .query("bookings")
+        .withIndex("by_organizationId_and_serviceId", (q) =>
+          q
+            .eq("organizationId", tenant.organization._id)
+            .eq("serviceId", service._id),
+        )
+        .first(),
+      ctx.db
+        .query("serviceRequests")
+        .withIndex("by_organizationId_and_serviceId", (q) =>
+          q
+            .eq("organizationId", tenant.organization._id)
+            .eq("serviceId", service._id),
+        )
+        .first(),
+      ctx.db
+        .query("serviceResources")
+        .withIndex("by_organizationId_and_serviceId", (q) =>
+          q
+            .eq("organizationId", tenant.organization._id)
+            .eq("serviceId", service._id),
+        )
+        .first(),
+    ]);
+    const references = [
+      ...(booking ? ["bookings" as const] : []),
+      ...(request ? ["service_requests" as const] : []),
+      ...(resourceLink ? ["resource_links" as const] : []),
+    ];
+    if (references.length > 0) {
+      throw new ConvexError({ code: "SERVICE_IN_USE", references });
+    }
+
+    await ctx.db.delete(service._id);
+    return service._id;
   },
 });

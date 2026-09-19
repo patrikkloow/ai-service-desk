@@ -51,6 +51,7 @@ describe("approved tenant-scoped tool layer", () => {
 
     await organizationA.mutation(api.tenants.ensureCurrentTenant, {});
     await organizationB.mutation(api.tenants.ensureCurrentTenant, {});
+    await organizationA.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
     const resourceA = await organizationA.mutation(api.resources.create, {
       name: "Resource A",
       kind: "person",
@@ -62,6 +63,7 @@ describe("approved tenant-scoped tool layer", () => {
     const organizationBAdmin = t.withIdentity(
       clerkIdentity("admin_b", "org_b", "admin"),
     );
+    await organizationBAdmin.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
     const resourceB = await organizationBAdmin.mutation(api.resources.create, {
       name: "Resource B",
       kind: "person",

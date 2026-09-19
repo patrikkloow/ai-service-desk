@@ -41,6 +41,8 @@ async function setup() {
   const b = t.withIdentity(identity("b"));
   await a.mutation(api.tenants.ensureCurrentTenant, {});
   await b.mutation(api.tenants.ensureCurrentTenant, {});
+  await a.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
+  await b.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
   for (const [organization, name] of [
     [a, "Resurs Alfa"],
     [b, "Resurs Beta"],

@@ -56,6 +56,8 @@ describe("secure AI orchestrator", () => {
 
     await organizationA.mutation(api.tenants.ensureCurrentTenant, {});
     await organizationB.mutation(api.tenants.ensureCurrentTenant, {});
+    await organizationA.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
+    await organizationB.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
     for (const [organization, name] of [
       [organizationA, "Resource A"],
       [organizationB, "Resource B"],

@@ -26,7 +26,7 @@ A Swedish, mobile-first operator shell and minimal shadcn/ui foundation are impl
 
 ## CURRENT — Booking System v1 checkpoint
 
-The booking stage was brought forward before production channels to validate the shared staff/AI scheduling boundary early. The internal system now has generic resources, per-resource weekly schedules, blocked time, service restrictions, a FullCalendar Standard operator calendar, mobile agenda, durable staff-create idempotency and optional Service Request links. Staff and AI use the same resource-aware availability and write operations; M11 autonomy policy still gates AI before Tool Layer dispatch. Legacy resource-less bookings remain visible and conservatively block all resources until explicit assignment. No data migration ran.
+The booking stage was brought forward before production channels to validate the shared staff/AI scheduling boundary early. The internal system now has generic resources, per-resource weekly schedules, Business Hours enforcement, blocked time, service restrictions, a FullCalendar Standard operator calendar, mobile agenda, durable staff-create idempotency and optional Service Request links. Desktop staff may drag to reschedule or use forms; schedule exceptions require an explicit audited confirmation and are unavailable to AI. Legacy resource-less bookings remain visible and conservatively block all resources until explicit assignment. No data migration ran.
 
 ## IN PROGRESS — 8.5 Voice Feasibility Spike
 
@@ -56,7 +56,7 @@ Deferred: structured intake templates, Required Checks, Estimate/Quote models, m
 
 **M11 COMPLETE for the scoped implementation.** Per-tenant business identity, ordinary weekly hours and bounded AI response settings are live in authenticated settings. The server enforces allow/confirm/human policies before AI writes, uses existing escalation for human-required actions, and fails missing/malformed policy data safe. Because trusted channel/session confirmation evidence does not exist, confirmation-required actions remain blocked and cannot be unlocked by model or client claims.
 
-**Booking System v1 COMPLETE for the scoped implementation.** Authenticated staff can configure resources and book through the shared calendar. Automated tests cover resource capacity, schedules/blocks, isolation, legacy compatibility, idempotency, Service Request lifecycle preservation and bounded range behavior. Desktop and approximately 390 px mobile layouts were checked in an authenticated browser. Real simultaneous-load stress testing and production acceptance remain separate.
+**Booking System v1 COMPLETE for the scoped implementation.** Authenticated staff can configure resources and book through the shared calendar. Acceptance refinements add full service editing, guarded admin deletion of unused services, Business Hours plus resource-schedule enforcement, explicit audited staff overrides, fixed-duration desktop drag rescheduling with stale-write rejection, richer booking details and opt-in cancelled history. Automated tests cover these rules alongside capacity, isolation, legacy compatibility, idempotency, Service Request lifecycle preservation and bounded range behavior. Real simultaneous-load stress testing and production acceptance remain separate.
 
 **Next: Milestone 12 — Channel Foundation + Channel Sessions.** Establish trusted tenant/customer/session mappings and explicit confirmation evidence before exposing customer-facing writes. M11 does not add external-customer target-record authorization or a production channel.
 

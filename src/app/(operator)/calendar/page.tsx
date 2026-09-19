@@ -1,6 +1,12 @@
 import { BookingCalendarLive } from "@/components/booking-calendar-live";
 
-export default function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string; resource?: string }>;
+}) {
+  const { date, resource } = await searchParams;
+  const safeDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
   return (
     <div className="min-w-0 space-y-6">
       <header>
@@ -9,7 +15,7 @@ export default function Page() {
           Gemensam planering för personalens och AI:ns bokningar.
         </p>
       </header>
-      <BookingCalendarLive />
+      <BookingCalendarLive initialDate={safeDate} initialResource={resource} />
     </div>
   );
 }

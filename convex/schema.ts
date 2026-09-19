@@ -228,6 +228,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_organizationId_and_startTime", ["organizationId", "startTime"])
+    .index("by_organizationId_and_serviceId", ["organizationId", "serviceId"])
     .index("by_organizationId_and_status_and_startTime", [
       "organizationId",
       "status",
@@ -257,6 +258,22 @@ export default defineSchema({
   }).index("by_organizationId_and_resourceId_and_createdAt", [
     "organizationId",
     "resourceId",
+    "createdAt",
+  ]),
+
+  bookingEvents: defineTable({
+    organizationId: v.id("organizations"),
+    bookingId: v.id("bookings"),
+    resourceId: v.id("resources"),
+    action: v.union(
+      v.literal("schedule_override_created"),
+      v.literal("schedule_override_rescheduled"),
+    ),
+    actor: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_bookingId_and_createdAt", [
+    "organizationId",
+    "bookingId",
     "createdAt",
   ]),
 
@@ -368,6 +385,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
+    .index("by_organizationId_and_serviceId", ["organizationId", "serviceId"])
     .index("by_organizationId_and_attention_and_updatedAt", [
       "organizationId",
       "attention",

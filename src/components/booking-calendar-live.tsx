@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import FullCalendar, {
   type CalendarRef,
   type DateClickInfo,
@@ -14,6 +14,7 @@ import formaThemePlugin from "@fullcalendar/react/themes/forma";
 import svLocale from "@fullcalendar/react/locales/sv";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarPlus, ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useTenantProvisioning } from "@/components/tenant-bootstrap";
@@ -34,8 +35,19 @@ import {
   localDate,
   localDateTimeToEpoch,
 } from "@/lib/booking-time";
+import {
+  attemptCalendarDrop,
+  scheduleOverrideReason,
+} from "@/lib/calendar-drop";
 
 const DAY_MS = 86_400_000;
+const desktopQuery = "(min-width: 768px)";
+
+function subscribeDesktop(callback: () => void) {
+  const media = window.matchMedia(desktopQuery);
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
 
 function initialRange() {
   const now = Date.now();
@@ -55,11 +67,23 @@ function idempotencyKey() {
 }
 
 function bookingError(reason: unknown, fallback: string) {
+  const data =
+    typeof reason === "object" && reason !== null && "data" in reason
+      ? (reason as { data?: unknown }).data
+      : null;
+  if (typeof data === "object" && data !== null && "code" in data) {
+    if (data.code === "BOOKING_CHANGED")
+      return "Bokningen har ändrats av någon annan. Kalendern har synkroniserats.";
+  }
   const message = reason instanceof Error ? reason.message : "";
   if (message.includes("booking_conflict"))
     return "Tiden är redan upptagen för den valda resursen.";
   if (message.includes("outside_schedule"))
     return "Tiden ligger utanför resursens bokningsbara schema.";
+  if (message.includes("outside_business_hours"))
+    return "Tiden ligger utanför företagets öppettider.";
+  if (message.includes("business_hours_missing"))
+    return "Företagets öppettider behöver konfigureras.";
   if (message.includes("schedule_missing"))
     return "Resursen behöver ett konfigurerat schema.";
   if (message.includes("resource_unavailable"))
@@ -74,20 +98,39 @@ function bookingError(reason: unknown, fallback: string) {
   return fallback;
 }
 
-export function BookingCalendarLive() {
+type PendingOverride = {
+  message: string;
+  confirm: () => Promise<void>;
+  cancel?: () => void;
+};
+
+export function BookingCalendarLive({
+  initialDate,
+  initialResource,
+}: {
+  initialDate?: string;
+  initialResource?: string;
+}) {
   const { isReady } = useTenantProvisioning();
   const context = useQuery(api.calendarBookings.context, isReady ? {} : "skip");
   const [range, setRange] = useState(initialRange);
   const [todayAtMount] = useState(() => Date.now());
   const [resourceFilter, setResourceFilter] = useState<Id<"resources"> | "all">(
-    "all",
+    (initialResource as Id<"resources"> | undefined) ?? "all",
   );
+  const [showCancelled, setShowCancelled] = useState(false);
+  const effectiveResourceFilter =
+    resourceFilter === "all" ||
+    context?.resources.some((resource) => resource._id === resourceFilter)
+      ? resourceFilter
+      : "all";
   const bookings = useQuery(
     api.calendarBookings.listRange,
-    isReady
+    isReady && context
       ? {
           ...range,
-          ...(resourceFilter === "all" ? {} : { resourceId: resourceFilter }),
+          ...(effectiveResourceFilter === "all" ? {} : { resourceId: effectiveResourceFilter }),
+          ...(showCancelled ? { includeCancelled: true } : {}),
         }
       : "skip",
   );
@@ -99,8 +142,13 @@ export function BookingCalendarLive() {
   const cancelBooking = useMutation(api.bookings.cancel);
   const completeBooking = useMutation(api.bookings.complete);
   const calendarRef = useRef<CalendarRef>(null);
+  const isDesktop = useSyncExternalStore(
+    subscribeDesktop,
+    () => window.matchMedia(desktopQuery).matches,
+    () => false,
+  );
   const savingRef = useRef(false);
-  const [mobileDate, setMobileDate] = useState("");
+  const [mobileDate, setMobileDate] = useState(initialDate ?? "");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"bookings"> | null>(null);
   const [rescheduling, setRescheduling] = useState(false);
@@ -121,10 +169,15 @@ export function BookingCalendarLive() {
   const [busy, setBusy] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingOverride, setPendingOverride] = useState<PendingOverride | null>(null);
   const timezone = context?.timezone ?? "Europe/Stockholm";
   type Booking = NonNullable<typeof bookings>[number];
   const selected =
     bookings?.find((booking) => booking._id === selectedId) ?? null;
+  const selectedDetail = useQuery(
+    api.calendarBookings.detail,
+    selectedId ? { bookingId: selectedId } : "skip",
+  );
   const service = context?.services.find((item) => item._id === serviceId);
   const duration = service?.durationMinutes;
   const activeResources = (context?.resources ?? []).filter(
@@ -178,6 +231,13 @@ export function BookingCalendarLive() {
     start: booking.startTime,
     end: booking.endTime,
     classNames: booking.status === "cancelled" ? ["opacity-50"] : [],
+    editable:
+      booking.status === "confirmed" && booking.resourceId !== undefined,
+    durationEditable: false,
+    extendedProps: {
+      resourceId: booking.resourceId,
+      updatedAt: booking.updatedAt,
+    },
   }));
   const shownMobileDate = mobileDate || localDate(todayAtMount, timezone);
   const mobileBookings = [...(bookings ?? [])]
@@ -280,14 +340,13 @@ export function BookingCalendarLive() {
     savingRef.current = true;
     setBusy(true);
     setError(null);
-    try {
-      await createBooking({
+    const input = {
         idempotencyKey: attemptKey,
         customer:
           customerMode === "existing"
-            ? { kind: "existing", customerId: customerId as Id<"customers"> }
+            ? { kind: "existing" as const, customerId: customerId as Id<"customers"> }
             : {
-                kind: "new",
+                kind: "new" as const,
                 name: newCustomerName,
                 ...(newCustomerEmail.trim() ? { email: newCustomerEmail } : {}),
                 ...(newCustomerPhone.trim() ? { phone: newCustomerPhone } : {}),
@@ -298,10 +357,23 @@ export function BookingCalendarLive() {
         startTime,
         endTime: startTime + duration * 60_000,
         ...(notes.trim() ? { notes } : {}),
-      });
+      };
+    try {
+      await createBooking(input);
       setCreateOpen(false);
     } catch (reason) {
-      setError(bookingError(reason, "Bokningen kunde inte sparas."));
+      const overrideMessage = scheduleOverrideReason(reason);
+      if (overrideMessage) {
+        setPendingOverride({
+          message: overrideMessage,
+          confirm: async () => {
+            await createBooking({ ...input, confirmScheduleOverride: true });
+            setCreateOpen(false);
+          },
+        });
+      } else {
+        setError(bookingError(reason, "Bokningen kunde inte sparas."));
+      }
     } finally {
       savingRef.current = false;
       setBusy(false);
@@ -318,17 +390,106 @@ export function BookingCalendarLive() {
     }
     savingRef.current = true;
     setBusy(true);
-    try {
-      await rescheduleBooking({
+    const input = {
         bookingId: selected._id,
         resourceId,
         startTime,
         endTime: startTime + (selected.endTime - selected.startTime),
-      });
+        expectedUpdatedAt: selected.updatedAt,
+      };
+    try {
+      await rescheduleBooking(input);
       setRescheduling(false);
       setError(null);
     } catch (reason) {
-      setError(bookingError(reason, "Ombokningen kunde inte sparas."));
+      const overrideMessage = scheduleOverrideReason(reason);
+      if (overrideMessage) {
+        setPendingOverride({
+          message: overrideMessage,
+          confirm: async () => {
+            await rescheduleBooking({ ...input, confirmScheduleOverride: true });
+            setRescheduling(false);
+          },
+        });
+      } else {
+        setError(bookingError(reason, "Ombokningen kunde inte sparas."));
+      }
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function confirmScheduleOverride() {
+    if (!pendingOverride || savingRef.current) return;
+    savingRef.current = true;
+    setBusy(true);
+    try {
+      await pendingOverride.confirm();
+      setPendingOverride(null);
+      setError(null);
+    } catch (reason) {
+      pendingOverride.cancel?.();
+      setPendingOverride(null);
+      setError(bookingError(reason, "Ändringen kunde inte sparas."));
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  function cancelScheduleOverride() {
+    pendingOverride?.cancel?.();
+    setPendingOverride(null);
+  }
+
+  async function handleEventDrop(info: {
+    event: {
+      id: string;
+      start: Date | null;
+      end: Date | null;
+      extendedProps: Record<string, unknown>;
+    };
+    revert: () => void;
+  }) {
+    const resourceId = info.event.extendedProps.resourceId;
+    const updatedAt = info.event.extendedProps.updatedAt;
+    if (
+      savingRef.current ||
+      !info.event.start ||
+      !info.event.end ||
+      typeof resourceId !== "string" ||
+      typeof updatedAt !== "number"
+    ) {
+      info.revert();
+      return;
+    }
+    const input = {
+      bookingId: info.event.id as Id<"bookings">,
+      resourceId: resourceId as Id<"resources">,
+      startTime: info.event.start.getTime(),
+      endTime: info.event.end.getTime(),
+      expectedUpdatedAt: updatedAt,
+    };
+    savingRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await attemptCalendarDrop({
+        save: () => rescheduleBooking(input),
+        revert: info.revert,
+      });
+      if (result.kind === "confirmation_required") {
+        setPendingOverride({
+          message: result.message,
+          confirm: async () => {
+            await rescheduleBooking({ ...input, confirmScheduleOverride: true });
+          },
+          cancel: info.revert,
+        });
+      } else if (result.kind === "rejected") {
+        setError(bookingError(result.reason, "Ombokningen kunde inte sparas."));
+      }
     } finally {
       savingRef.current = false;
       setBusy(false);
@@ -376,6 +537,14 @@ export function BookingCalendarLive() {
           </select>
         </label>
         <div className="flex flex-wrap items-center gap-3">
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              checked={showCancelled}
+              onChange={(event) => setShowCancelled(event.target.checked)}
+              type="checkbox"
+            />
+            Visa avbokade
+          </label>
           <span className="text-sm text-muted-foreground">
             Tidszon: {timezone}
           </span>
@@ -385,6 +554,11 @@ export function BookingCalendarLive() {
           </Button>
         </div>
       </div>
+      {error && !createOpen && selected === null ? (
+        <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
       {context.resources.filter(
         (resource) =>
           resource.status === "active" && resource.scheduleConfigured,
@@ -402,7 +576,10 @@ export function BookingCalendarLive() {
           allDaySlot={false}
           dateClick={handleDateClick}
           datesSet={handleDatesSet}
-          editable={false}
+          editable={isDesktop}
+          eventDurationEditable={false}
+          eventDrop={(info) => void handleEventDrop(info)}
+          eventStartEditable={isDesktop}
           eventClick={handleEventClick}
           events={events}
           headerToolbar={{
@@ -410,15 +587,17 @@ export function BookingCalendarLive() {
             center: "title",
             right: "timeGridDay,timeGridWeek",
           }}
-          height="auto"
+          height="70vh"
+          initialDate={initialDate}
           initialView="timeGridWeek"
           locale={svLocale}
           nowIndicator
           plugins={[formaThemePlugin, interactionPlugin, timeGridPlugin]}
           ref={calendarRef}
           slotDuration="00:30:00"
-          slotMaxTime="20:00:00"
-          slotMinTime="07:00:00"
+          scrollTime="07:00:00"
+          slotMaxTime="24:00:00"
+          slotMinTime="00:00:00"
           timeZone={timezone}
         />
       </div>
@@ -709,15 +888,38 @@ export function BookingCalendarLive() {
           {selected ? (
             <div className="space-y-3">
               <p className="text-sm">Status: {statusLabel(selected.status)}</p>
+              {selectedDetail === undefined ? (
+                <p className="text-sm text-muted-foreground">Laddar kunduppgifter…</p>
+              ) : selectedDetail ? (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="font-medium">{selectedDetail.customer.name}</p>
+                  <p className="text-muted-foreground">
+                    {[selectedDetail.customer.email, selectedDetail.customer.phone]
+                      .filter(Boolean)
+                      .join(" · ") || "Inga kontaktuppgifter"}
+                  </p>
+                </div>
+              ) : null}
               {selected.notes ? (
                 <p className="rounded-lg bg-muted p-3 text-sm">
                   {selected.notes}
                 </p>
               ) : null}
-              {selected.serviceRequestId ? (
-                <p className="text-sm">
-                  Förfrågan: {linkedRequest?.title ?? "Kopplad förfrågan"}
-                </p>
+              {selectedDetail?.request ? (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="font-medium">{selectedDetail.request.title}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    {selectedDetail.request.summary.wants}
+                  </p>
+                  <Link
+                    className="mt-2 inline-flex min-h-11 items-center font-medium underline"
+                    href={`/requests?selected=${encodeURIComponent(selectedDetail.request._id)}&returnTo=${encodeURIComponent(`/calendar?date=${shownMobileDate}&resource=${effectiveResourceFilter}`)}`}
+                  >
+                    Öppna förfrågan
+                  </Link>
+                </div>
+              ) : selected.serviceRequestId ? (
+                <p className="text-sm">Förfrågan: {linkedRequest?.title ?? "Kopplad förfrågan"}</p>
               ) : null}
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
@@ -862,6 +1064,21 @@ export function BookingCalendarLive() {
               ) : null}
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingOverride !== null} onOpenChange={(open) => !busy && !open && cancelScheduleOverride()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Boka utanför ordinarie arbetstid?</DialogTitle>
+            <DialogDescription>
+              {pendingOverride?.message} Bekräftelsen loggas. Blockerade tider och andra bokningar kontrolleras fortfarande.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button disabled={busy} onClick={cancelScheduleOverride} variant="outline">Avbryt</Button>
+            <Button disabled={busy} onClick={() => void confirmScheduleOverride()}>{busy ? "Sparar…" : "Bekräfta undantag"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

@@ -11,6 +11,7 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useTenantProvisioning } from "./tenant-bootstrap";
@@ -97,7 +98,7 @@ class InboxError extends Component<
     );
   }
 }
-export function Inbox({ requestsOnly = false, initialSelected = null }: { requestsOnly?: boolean; initialSelected?: string | null }) {
+export function Inbox({ requestsOnly = false, initialSelected = null, returnTo = null }: { requestsOnly?: boolean; initialSelected?: string | null; returnTo?: string | null }) {
   const { orgId, userId } = useAuth();
   const { isReady, error } = useTenantProvisioning();
   if (!isReady)
@@ -109,11 +110,11 @@ export function Inbox({ requestsOnly = false, initialSelected = null }: { reques
   // Clear detail, drafts and pending errors on workspace/account changes.
   return (
     <InboxError key={`${orgId}:${userId}`}>
-      <InboxContent requestsOnly={requestsOnly} initialSelected={initialSelected} />
+      <InboxContent requestsOnly={requestsOnly} initialSelected={initialSelected} returnTo={returnTo} />
     </InboxError>
   );
 }
-function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean; initialSelected: string | null }) {
+function InboxContent({ requestsOnly, initialSelected, returnTo }: { requestsOnly: boolean; initialSelected: string | null; returnTo: string | null }) {
   const view = requestsOnly ? "all" : "attention";
   const [filter, setFilter] = useState("all");
   const desktop = useSyncExternalStore(
@@ -170,6 +171,11 @@ function InboxContent({ requestsOnly, initialSelected }: { requestsOnly: boolean
   }
   return (
     <section className="space-y-6">
+      {returnTo ? (
+        <Link className="inline-flex min-h-11 items-center text-sm font-medium underline" href={returnTo}>
+          Tillbaka till kalendern
+        </Link>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">{requestsOnly ? "Förfrågningar" : "Inkorg"}</h1>

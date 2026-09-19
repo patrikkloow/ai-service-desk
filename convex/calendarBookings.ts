@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -104,6 +104,7 @@ async function createResourceBooking(
     startTime: number;
     endTime: number;
     notes?: string;
+    allowScheduleOverride?: boolean;
   },
 ) {
   validateBookingInterval(args.startTime, args.endTime);
@@ -128,6 +129,7 @@ async function createResourceBooking(
     startTime: args.startTime,
     endTime: args.endTime,
     notes: args.notes,
+    ...(args.allowScheduleOverride ? { allowScheduleOverride: true } : {}),
   });
   if (request) {
     const now = Date.now();
@@ -249,6 +251,7 @@ export const listRange = query({
     startTime: v.number(),
     endTime: v.number(),
     resourceId: v.optional(v.id("resources")),
+    includeCancelled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     validateCalendarRange(args.startTime, args.endTime);
@@ -270,12 +273,50 @@ export const listRange = query({
     return bookings.filter(
       (booking) =>
         booking.endTime > args.startTime &&
+        (args.includeCancelled || booking.status !== "cancelled") &&
         (!args.resourceId ||
           booking.resourceId === undefined ||
           booking.resourceId === args.resourceId),
     );
   },
 });
+
+export const detail = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const booking = await getAvailableBooking(ctx, args.bookingId);
+    if (!booking) return null;
+    const [customer, request] = await Promise.all([
+      ctx.db.get(booking.customerId),
+      booking.serviceRequestId ? ctx.db.get(booking.serviceRequestId) : null,
+    ]);
+    if (!customer || customer.organizationId !== booking.organizationId)
+      throw new Error("Customer is unavailable");
+    if (request && request.organizationId !== booking.organizationId)
+      throw new Error("Service request is unavailable");
+    return {
+      booking,
+      customer: {
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+      },
+      request: request
+        ? { _id: request._id, title: request.title, summary: request.summary }
+        : null,
+    };
+  },
+});
+
+const scheduleReasons = new Set([
+  "business_hours_missing",
+  "outside_business_hours",
+  "outside_schedule",
+]);
+
+function scheduleWarning(reason: string) {
+  throw new ConvexError({ code: "SCHEDULE_OVERRIDE_REQUIRED", reason });
+}
 
 export const create = mutation({
   args: {
@@ -287,6 +328,7 @@ export const create = mutation({
     startTime: v.number(),
     endTime: v.number(),
     notes: v.optional(v.string()),
+    confirmScheduleOverride: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenant(ctx);
@@ -330,6 +372,18 @@ export const create = mutation({
         throw new Error("Idempotency key was already used for another booking");
       return existing.bookingId;
     }
+    const strictAvailability = await findAvailableResource(ctx, {
+      organizationId: tenant.organization._id,
+      serviceId: args.serviceId,
+      resourceId: args.resourceId,
+      startTime: args.startTime,
+      endTime: args.endTime,
+    });
+    const overrideRequired =
+      !strictAvailability.available &&
+      scheduleReasons.has(strictAvailability.reason);
+    if (overrideRequired && !args.confirmScheduleOverride)
+      scheduleWarning(strictAvailability.reason);
     const customerId =
       customer.kind === "existing"
         ? customer.customerId
@@ -350,6 +404,7 @@ export const create = mutation({
       startTime: args.startTime,
       endTime: args.endTime,
       notes: args.notes,
+      ...(overrideRequired ? { allowScheduleOverride: true } : {}),
     });
     await ctx.db.insert("bookingCreateAttempts", {
       organizationId: tenant.organization._id,
@@ -358,6 +413,16 @@ export const create = mutation({
       bookingId,
       createdAt: Date.now(),
     });
+    if (overrideRequired) {
+      await ctx.db.insert("bookingEvents", {
+        organizationId: tenant.organization._id,
+        bookingId,
+        resourceId: args.resourceId,
+        action: "schedule_override_created",
+        actor: tenant.identity.tokenIdentifier,
+        createdAt: Date.now(),
+      });
+    }
     return bookingId;
   },
 });
@@ -368,13 +433,48 @@ export const reschedule = mutation({
     resourceId: v.id("resources"),
     startTime: v.number(),
     endTime: v.number(),
+    expectedUpdatedAt: v.number(),
+    confirmScheduleOverride: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     validateBookingInterval(args.startTime, args.endTime);
     const booking = await getAvailableBooking(ctx, args.bookingId);
     if (!booking || booking.status !== "confirmed")
       throw new Error("Booking is unavailable");
-    return await rescheduleTenantBooking(ctx, args);
+    if (booking.updatedAt !== args.expectedUpdatedAt)
+      throw new ConvexError({ code: "BOOKING_CHANGED" });
+    const strictAvailability = await findAvailableResource(ctx, {
+      organizationId: booking.organizationId,
+      serviceId: booking.serviceId,
+      resourceId: args.resourceId,
+      startTime: args.startTime,
+      endTime: args.endTime,
+      excludeBookingId: booking._id,
+    });
+    const overrideRequired =
+      !strictAvailability.available &&
+      scheduleReasons.has(strictAvailability.reason);
+    if (overrideRequired && !args.confirmScheduleOverride)
+      scheduleWarning(strictAvailability.reason);
+    const bookingId = await rescheduleTenantBooking(ctx, {
+      bookingId: booking._id,
+      resourceId: args.resourceId,
+      startTime: args.startTime,
+      endTime: args.endTime,
+      ...(overrideRequired ? { allowScheduleOverride: true } : {}),
+    });
+    if (overrideRequired) {
+      const tenant = await requireCurrentTenant(ctx);
+      await ctx.db.insert("bookingEvents", {
+        organizationId: booking.organizationId,
+        bookingId,
+        resourceId: args.resourceId,
+        action: "schedule_override_rescheduled",
+        actor: tenant.identity.tokenIdentifier,
+        createdAt: Date.now(),
+      });
+    }
+    return bookingId;
   },
 });
 

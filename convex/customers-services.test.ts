@@ -94,4 +94,58 @@ describe("tenant-scoped customers and services", () => {
       pricing: { kind: "fixed", amountMinor: 9900, currency: "SEK" },
     });
   });
+
+  test("permanent service deletion is admin-only, tenant-safe, and rejects every business reference", async () => {
+    const t = convexTest({ schema, modules: import.meta.glob("./**/*.*s") });
+    const adminA = t.withIdentity(clerkIdentity("admin_a", "org_a", "admin"));
+    const memberA = t.withIdentity(clerkIdentity("member_a", "org_a", "member"));
+    const adminB = t.withIdentity(clerkIdentity("admin_b", "org_b", "admin"));
+    const tenantA = await adminA.mutation(api.tenants.ensureCurrentTenant, {});
+    await memberA.mutation(api.tenants.ensureCurrentTenant, {});
+    await adminB.mutation(api.tenants.ensureCurrentTenant, {});
+
+    const unused = await adminA.mutation(api.services.create, { name: "Felskapad" });
+    await expect(memberA.mutation(api.services.remove, { serviceId: unused }))
+      .rejects.toThrow("Organization administrator access is required");
+    await expect(adminB.mutation(api.services.remove, { serviceId: unused }))
+      .rejects.toThrow("Service is unavailable");
+    await adminA.mutation(api.services.remove, { serviceId: unused });
+    expect(await adminA.query(api.services.get, { serviceId: unused })).toBeNull();
+
+    const customerId = await adminA.mutation(api.customers.create, { name: "Historikkund" });
+    const booked = await adminA.mutation(api.services.create, { name: "Historisk tjänst" });
+    await t.run((ctx) =>
+      ctx.db.insert("bookings", {
+        organizationId: tenantA.organizationId,
+        customerId,
+        serviceId: booked,
+        customerName: "Historikkund",
+        serviceName: "Historisk tjänst",
+        servicePricing: { kind: "not_specified" },
+        startTime: 1,
+        endTime: 2,
+        status: "cancelled",
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    await expect(adminA.mutation(api.services.remove, { serviceId: booked }))
+      .rejects.toThrow("SERVICE_IN_USE");
+
+    const requested = await adminA.mutation(api.services.create, { name: "Förfrågad tjänst" });
+    await adminA.mutation(api.serviceRequests.create, {
+      title: "Historisk förfrågan",
+      summary: { wants: "Hjälp", known: "", missing: "" },
+      serviceId: requested,
+    });
+    await expect(adminA.mutation(api.services.remove, { serviceId: requested }))
+      .rejects.toThrow("SERVICE_IN_USE");
+
+    const linked = await adminA.mutation(api.services.create, { name: "Resurskopplad tjänst" });
+    const resourceId = await adminA.mutation(api.resources.create, { name: "Resurs", kind: "person" });
+    await adminA.mutation(api.resources.setServices, { resourceId, serviceIds: [linked] });
+    await expect(adminA.mutation(api.services.remove, { serviceId: linked }))
+      .rejects.toThrow("SERVICE_IN_USE");
+    expect(await adminA.query(api.services.get, { serviceId: linked })).not.toBeNull();
+  });
 });

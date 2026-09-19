@@ -68,7 +68,9 @@ const dayKeys = [
 ] as const;
 
 function isCoveredBySchedule(
-  schedule: Doc<"resourceSchedules">["schedule"],
+  schedule:
+    | Doc<"resourceSchedules">["schedule"]
+    | Doc<"businessHours">["schedule"],
   timezone: string,
   startTime: number,
   endTime: number,
@@ -139,6 +141,7 @@ export async function resourceAvailability(
     startTime: number;
     endTime: number;
     excludeBookingId?: Id<"bookings">;
+    allowScheduleOverride?: boolean;
   },
 ) {
   validateBookingInterval(args.startTime, args.endTime);
@@ -165,25 +168,44 @@ export async function resourceAvailability(
       available: false as const,
       reason: "service_not_supported" as const,
     };
-  const schedule = await ctx.db
-    .query("resourceSchedules")
-    .withIndex("by_organizationId_and_resourceId", (q) =>
-      q
-        .eq("organizationId", args.organizationId)
-        .eq("resourceId", args.resourceId),
-    )
-    .unique();
+  const [schedule, businessHours, timezone] = await Promise.all([
+    ctx.db
+      .query("resourceSchedules")
+      .withIndex("by_organizationId_and_resourceId", (q) =>
+        q
+          .eq("organizationId", args.organizationId)
+          .eq("resourceId", args.resourceId),
+      )
+      .unique(),
+    ctx.db
+      .query("businessHours")
+      .withIndex("by_organizationId", (q) =>
+        q.eq("organizationId", args.organizationId),
+      )
+      .unique(),
+    businessTimezone(ctx, args.organizationId),
+  ]);
   if (!schedule?.configured)
     return { available: false as const, reason: "schedule_missing" as const };
-  if (
-    !isCoveredBySchedule(
-      schedule.schedule,
-      await businessTimezone(ctx, args.organizationId),
-      args.startTime,
-      args.endTime,
-    )
-  )
-    return { available: false as const, reason: "outside_schedule" as const };
+  const scheduleReason = !businessHours?.configured
+    ? ("business_hours_missing" as const)
+    : !isCoveredBySchedule(
+          businessHours.schedule,
+          timezone,
+          args.startTime,
+          args.endTime,
+        )
+      ? ("outside_business_hours" as const)
+      : !isCoveredBySchedule(
+            schedule.schedule,
+            timezone,
+            args.startTime,
+            args.endTime,
+          )
+        ? ("outside_schedule" as const)
+        : null;
+  if (scheduleReason && !args.allowScheduleOverride)
+    return { available: false as const, reason: scheduleReason };
   if (
     await findBlockingResourceTime(
       ctx,
@@ -208,7 +230,11 @@ export async function resourceAvailability(
       available: false as const,
       reason: "booking_conflict" as const,
     };
-  return { available: true as const, resource };
+  return {
+    available: true as const,
+    resource,
+    scheduleOverridden: scheduleReason !== null,
+  };
 }
 
 export async function findAvailableResource(
@@ -220,6 +246,7 @@ export async function findAvailableResource(
     endTime: number;
     resourceId?: Id<"resources">;
     excludeBookingId?: Id<"bookings">;
+    allowScheduleOverride?: boolean;
   },
 ) {
   const resources = args.resourceId

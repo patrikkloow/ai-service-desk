@@ -19,6 +19,8 @@ export type CreateTenantBookingArgs = {
   endTime: number;
   notes?: string;
   resourceId?: Id<"resources">;
+  /** Internal staff-calendar capability. Never accepted by AI tools. */
+  allowScheduleOverride?: boolean;
 };
 
 function optionalNotes(value: string | undefined): string | undefined {
@@ -82,6 +84,7 @@ export async function createTenantBooking(
     startTime: args.startTime,
     endTime: args.endTime,
     ...(args.resourceId ? { resourceId: args.resourceId } : {}),
+    ...(args.allowScheduleOverride ? { allowScheduleOverride: true } : {}),
   });
   if (!available.available)
     throw new Error(`The requested time is unavailable: ${available.reason}`);
@@ -112,6 +115,7 @@ export async function rescheduleTenantBooking(
     startTime: number;
     endTime: number;
     resourceId?: Id<"resources">;
+    allowScheduleOverride?: boolean;
   },
 ) {
   validateBookingInterval(args.startTime, args.endTime);
@@ -127,6 +131,7 @@ export async function rescheduleTenantBooking(
     endTime: args.endTime,
     resourceId: args.resourceId ?? booking.resourceId,
     excludeBookingId: booking._id,
+    ...(args.allowScheduleOverride ? { allowScheduleOverride: true } : {}),
   });
   if (!available.available)
     throw new Error(`The requested time is unavailable: ${available.reason}`);
@@ -135,7 +140,7 @@ export async function rescheduleTenantBooking(
     resourceName: available.resource.name,
     startTime: args.startTime,
     endTime: args.endTime,
-    updatedAt: Date.now(),
+    updatedAt: Math.max(Date.now(), booking.updatedAt + 1),
   });
   return booking._id;
 }

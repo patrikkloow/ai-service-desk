@@ -31,6 +31,7 @@ async function setup() {
       ...identity(`admin_${org}`, org),
       o: { id: org, rol: "admin" },
     });
+    await admin.mutation(api.businessHours.update, { schedule: TEST_OPEN_WEEK });
     const resourceId = await admin.mutation(api.resources.create, {
       name,
       kind: "person",
