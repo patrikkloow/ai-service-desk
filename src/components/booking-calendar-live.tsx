@@ -37,6 +37,7 @@ import {
 } from "@/lib/booking-time";
 import {
   attemptCalendarDrop,
+  hasConvexErrorCode,
   scheduleOverrideReason,
 } from "@/lib/calendar-drop";
 
@@ -67,23 +68,11 @@ function idempotencyKey() {
 }
 
 function bookingError(reason: unknown, fallback: string) {
-  const data =
-    typeof reason === "object" && reason !== null && "data" in reason
-      ? (reason as { data?: unknown }).data
-      : null;
-  if (typeof data === "object" && data !== null && "code" in data) {
-    if (data.code === "BOOKING_CHANGED")
-      return "Bokningen har ändrats av någon annan. Kalendern har synkroniserats.";
-  }
+  if (hasConvexErrorCode(reason, "BOOKING_CHANGED"))
+    return "Bokningen har ändrats av någon annan. Kalendern har synkroniserats.";
   const message = reason instanceof Error ? reason.message : "";
   if (message.includes("booking_conflict"))
     return "Tiden är redan upptagen för den valda resursen.";
-  if (message.includes("outside_schedule"))
-    return "Tiden ligger utanför resursens bokningsbara schema.";
-  if (message.includes("outside_business_hours"))
-    return "Tiden ligger utanför företagets öppettider.";
-  if (message.includes("business_hours_missing"))
-    return "Företagets öppettider behöver konfigureras.";
   if (message.includes("schedule_missing"))
     return "Resursen behöver ett konfigurerat schema.";
   if (message.includes("resource_unavailable"))
@@ -99,6 +88,7 @@ function bookingError(reason: unknown, fallback: string) {
 }
 
 type PendingOverride = {
+  action: "create" | "reschedule";
   message: string;
   confirm: () => Promise<void>;
   cancel?: () => void;
@@ -365,6 +355,7 @@ export function BookingCalendarLive({
       const overrideMessage = scheduleOverrideReason(reason);
       if (overrideMessage) {
         setPendingOverride({
+          action: "create",
           message: overrideMessage,
           confirm: async () => {
             await createBooking({ ...input, confirmScheduleOverride: true });
@@ -405,6 +396,7 @@ export function BookingCalendarLive({
       const overrideMessage = scheduleOverrideReason(reason);
       if (overrideMessage) {
         setPendingOverride({
+          action: "reschedule",
           message: overrideMessage,
           confirm: async () => {
             await rescheduleBooking({ ...input, confirmScheduleOverride: true });
@@ -481,6 +473,7 @@ export function BookingCalendarLive({
       });
       if (result.kind === "confirmation_required") {
         setPendingOverride({
+          action: "reschedule",
           message: result.message,
           confirm: async () => {
             await rescheduleBooking({ ...input, confirmScheduleOverride: true });
@@ -1070,14 +1063,24 @@ export function BookingCalendarLive({
       <Dialog open={pendingOverride !== null} onOpenChange={(open) => !busy && !open && cancelScheduleOverride()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Boka utanför ordinarie arbetstid?</DialogTitle>
+            <DialogTitle>
+              {pendingOverride?.action === "reschedule"
+                ? "Flytta utanför ordinarie arbetstid?"
+                : "Boka utanför ordinarie arbetstid?"}
+            </DialogTitle>
             <DialogDescription>
               {pendingOverride?.message} Bekräftelsen loggas. Blockerade tider och andra bokningar kontrolleras fortfarande.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button disabled={busy} onClick={cancelScheduleOverride} variant="outline">Avbryt</Button>
-            <Button disabled={busy} onClick={() => void confirmScheduleOverride()}>{busy ? "Sparar…" : "Bekräfta undantag"}</Button>
+            <Button disabled={busy} onClick={() => void confirmScheduleOverride()}>
+              {busy
+                ? "Sparar…"
+                : pendingOverride?.action === "reschedule"
+                  ? "Flytta ändå"
+                  : "Boka ändå"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

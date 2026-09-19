@@ -485,6 +485,44 @@ describe("booking system v1", () => {
     ).rejects.toThrow("BOOKING_CHANGED");
   });
 
+  test("a confirmed schedule override still rejects a stale booking version", async () => {
+    const { t, admin, customer, service, resourceA } = await setup();
+    const bookingId = await admin.mutation(api.bookings.create, {
+      customerId: customer,
+      serviceId: service,
+      resourceId: resourceA,
+      startTime: mondayTen,
+      endTime: mondayTen + hour,
+    });
+    const booking = await admin.query(api.bookings.get, { bookingId });
+    const outsideStart = mondayTen - 2 * hour;
+    const intendedMove = {
+      bookingId,
+      resourceId: resourceA,
+      startTime: outsideStart,
+      endTime: outsideStart + hour,
+      expectedUpdatedAt: booking!.updatedAt,
+    };
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, intendedMove),
+    ).rejects.toThrow("SCHEDULE_OVERRIDE_REQUIRED");
+    await t.run((ctx) =>
+      ctx.db.patch(bookingId, { updatedAt: booking!.updatedAt + 1 }),
+    );
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, {
+        ...intendedMove,
+        confirmScheduleOverride: true,
+      }),
+    ).rejects.toThrow("BOOKING_CHANGED");
+    expect(await admin.query(api.bookings.get, { bookingId })).toMatchObject({
+      startTime: mondayTen,
+      endTime: mondayTen + hour,
+      updatedAt: booking!.updatedAt + 1,
+    });
+    expect(await t.run((ctx) => ctx.db.query("bookingEvents").collect())).toEqual([]);
+  });
+
   test("bounded calendar ranges include leading overlaps and more than 100 records", async () => {
     const { t, admin, customer, service, resourceA } = await setup();
     const organizationId = (

@@ -1,21 +1,25 @@
+function convexErrorData(reason: unknown): Record<string, unknown> | null {
+  if (typeof reason !== "object" || reason === null || Array.isArray(reason))
+    return null;
+  const data = "data" in reason ? reason.data : null;
+  if (typeof data !== "object" || data === null || Array.isArray(data))
+    return null;
+  return data as Record<string, unknown>;
+}
+
+export function hasConvexErrorCode(reason: unknown, code: string): boolean {
+  return convexErrorData(reason)?.code === code;
+}
+
 export function scheduleOverrideReason(reason: unknown): string | null {
-  const data =
-    typeof reason === "object" && reason !== null && "data" in reason
-      ? (reason as { data?: unknown }).data
-      : null;
-  if (
-    typeof data === "object" &&
-    data !== null &&
-    "code" in data &&
-    data.code === "SCHEDULE_OVERRIDE_REQUIRED"
-  ) {
-    const value = "reason" in data ? data.reason : null;
-    return value === "outside_schedule"
-      ? "Tiden ligger utanför resursens ordinarie arbetstid."
-      : value === "outside_business_hours"
-        ? "Tiden ligger utanför företagets ordinarie öppettider."
-        : "Företagets öppettider är inte konfigurerade för tiden.";
-  }
+  const data = convexErrorData(reason);
+  if (data?.code !== "SCHEDULE_OVERRIDE_REQUIRED") return null;
+  if (data.reason === "outside_schedule")
+    return "Tiden ligger utanför resursens ordinarie arbetstid.";
+  if (data.reason === "outside_business_hours")
+    return "Tiden ligger utanför företagets ordinarie öppettider.";
+  if (data.reason === "business_hours_missing")
+    return "Företagets öppettider är inte konfigurerade för tiden.";
   return null;
 }
 

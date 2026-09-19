@@ -95,7 +95,7 @@ describe("tenant-scoped customers and services", () => {
     });
   });
 
-  test("permanent service deletion is admin-only, tenant-safe, and rejects every business reference", async () => {
+  test("permanent service deletion is admin-only, tenant-safe, and preserves terminal history", async () => {
     const t = convexTest({ schema, modules: import.meta.glob("./**/*.*s") });
     const adminA = t.withIdentity(clerkIdentity("admin_a", "org_a", "admin"));
     const memberA = t.withIdentity(clerkIdentity("member_a", "org_a", "member"));
@@ -103,6 +103,12 @@ describe("tenant-scoped customers and services", () => {
     const tenantA = await adminA.mutation(api.tenants.ensureCurrentTenant, {});
     await memberA.mutation(api.tenants.ensureCurrentTenant, {});
     await adminB.mutation(api.tenants.ensureCurrentTenant, {});
+    expect(await adminA.query(api.services.permissions, {})).toEqual({
+      canDelete: true,
+    });
+    expect(await memberA.query(api.services.permissions, {})).toEqual({
+      canDelete: false,
+    });
 
     const unused = await adminA.mutation(api.services.create, { name: "Felskapad" });
     await expect(memberA.mutation(api.services.remove, { serviceId: unused }))
@@ -113,33 +119,66 @@ describe("tenant-scoped customers and services", () => {
     expect(await adminA.query(api.services.get, { serviceId: unused })).toBeNull();
 
     const customerId = await adminA.mutation(api.customers.create, { name: "Historikkund" });
-    const booked = await adminA.mutation(api.services.create, { name: "Historisk tjänst" });
-    await t.run((ctx) =>
+    const booked = await adminA.mutation(api.services.create, { name: "Bokad tjänst" });
+    const activeBooking = await t.run((ctx) =>
       ctx.db.insert("bookings", {
         organizationId: tenantA.organizationId,
         customerId,
         serviceId: booked,
         customerName: "Historikkund",
-        serviceName: "Historisk tjänst",
+        serviceName: "Bokad tjänst",
         servicePricing: { kind: "not_specified" },
         startTime: 1,
         endTime: 2,
-        status: "cancelled",
+        status: "confirmed",
         createdAt: 1,
         updatedAt: 1,
       }),
     );
     await expect(adminA.mutation(api.services.remove, { serviceId: booked }))
       .rejects.toThrow("SERVICE_IN_USE");
+    await t.run((ctx) => ctx.db.patch(activeBooking, { status: "completed" }));
+    const cancelledBooking = await t.run((ctx) =>
+      ctx.db.insert("bookings", {
+        organizationId: tenantA.organizationId,
+        customerId,
+        serviceId: booked,
+        customerName: "Historikkund",
+        serviceName: "Bokad tjänst",
+        servicePricing: { kind: "not_specified" },
+        startTime: 3,
+        endTime: 4,
+        status: "cancelled",
+        createdAt: 2,
+        updatedAt: 2,
+      }),
+    );
+    await adminA.mutation(api.services.remove, { serviceId: booked });
+    expect(await adminA.query(api.services.get, { serviceId: booked })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(activeBooking))).toMatchObject({
+      status: "completed",
+      serviceName: "Bokad tjänst",
+    });
+    expect(await t.run((ctx) => ctx.db.get(cancelledBooking))).toMatchObject({
+      status: "cancelled",
+      serviceName: "Bokad tjänst",
+    });
 
     const requested = await adminA.mutation(api.services.create, { name: "Förfrågad tjänst" });
-    await adminA.mutation(api.serviceRequests.create, {
+    const requestId = await adminA.mutation(api.serviceRequests.create, {
       title: "Historisk förfrågan",
       summary: { wants: "Hjälp", known: "", missing: "" },
       serviceId: requested,
     });
     await expect(adminA.mutation(api.services.remove, { serviceId: requested }))
       .rejects.toThrow("SERVICE_IN_USE");
+    await t.run((ctx) => ctx.db.patch(requestId, { status: "completed" }));
+    await expect(adminA.mutation(api.services.remove, { serviceId: requested }))
+      .rejects.toThrow("SERVICE_IN_USE");
+    expect(await t.run((ctx) => ctx.db.get(requestId))).toMatchObject({
+      status: "completed",
+      serviceId: requested,
+    });
 
     const linked = await adminA.mutation(api.services.create, { name: "Resurskopplad tjänst" });
     const resourceId = await adminA.mutation(api.resources.create, { name: "Resurs", kind: "person" });

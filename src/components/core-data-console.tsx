@@ -37,11 +37,13 @@ function serviceDeleteMessage(reason: unknown): string {
         ? data.references
         : [];
     const labels = references.map((reference) =>
-      reference === "bookings"
-        ? "bokningshistorik"
+      reference === "active_bookings"
+        ? "aktiva bokningar"
         : reference === "service_requests"
           ? "förfrågningar"
-          : "resurskopplingar",
+          : reference === "resource_links"
+            ? "resurskopplingar"
+            : "verksamhetsdata",
     );
     return `Tjänsten kan inte tas bort eftersom den används av ${labels.join(
       ", ",
@@ -81,6 +83,10 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
     api.services.list,
     isReady && area === "services" ? {} : "skip",
   );
+  const servicePermissions = useQuery(
+    api.services.permissions,
+    isReady && area === "services" ? {} : "skip",
+  );
   const createCustomer = useMutation(api.customers.create);
   const updateCustomer = useMutation(api.customers.update);
   const setCustomerStatus = useMutation(api.customers.setStatus);
@@ -106,9 +112,12 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   const [editPriceKind, setEditPriceKind] = useState<PriceKind>("not_specified");
   const [editPriceAmount, setEditPriceAmount] = useState("");
   const [editCurrency, setEditCurrency] = useState("SEK");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletingServiceId, setDeletingServiceId] =
+    useState<Id<"services"> | null>(null);
   const [deleteBlocked, setDeleteBlocked] = useState<string | null>(null);
   const editingService = services?.find((service) => service._id === editingServiceId) ?? null;
+  const deletingService =
+    services?.find((service) => service._id === deletingServiceId) ?? null;
 
   if (!isReady) {
     return (
@@ -218,6 +227,11 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
     setDeleteBlocked(null);
   }
 
+  function openDeleteDialog(serviceId: Id<"services">) {
+    setDeletingServiceId(serviceId);
+    setDeleteBlocked(null);
+  }
+
   async function saveService(event: React.FormEvent) {
     event.preventDefault();
     if (!editingServiceId) return;
@@ -255,16 +269,33 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   }
 
   async function deleteServicePermanently() {
-    if (!editingServiceId) return;
+    if (!deletingServiceId) return;
     setBusy(true);
     setDeleteBlocked(null);
     try {
-      await removeService({ serviceId: editingServiceId });
-      setConfirmDelete(false);
-      setEditingServiceId(null);
+      await removeService({ serviceId: deletingServiceId });
+      if (editingServiceId === deletingServiceId) setEditingServiceId(null);
+      setDeletingServiceId(null);
     } catch (reason) {
-      setConfirmDelete(false);
       setDeleteBlocked(serviceDeleteMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inactivateDeletingService() {
+    if (!deletingServiceId) return;
+    setBusy(true);
+    try {
+      await setServiceStatus({
+        serviceId: deletingServiceId,
+        status: "inactive",
+      });
+      if (editingServiceId === deletingServiceId) setEditingServiceId(null);
+      setDeletingServiceId(null);
+      setDeleteBlocked(null);
+    } catch {
+      setError(errorMessage());
     } finally {
       setBusy(false);
     }
@@ -442,8 +473,17 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
                   }
                   type="button"
                 >
-                  {service.status === "active" ? "Inaktivera" : "Aktivera"}
+                  {service.status === "active" ? "Inaktivera" : "Återaktivera"}
                 </button>
+                {servicePermissions?.canDelete ? (
+                  <button
+                    className="min-h-11 px-2 text-sm text-red-700 underline decoration-red-300 underline-offset-4 dark:text-red-300"
+                    onClick={() => openDeleteDialog(service._id)}
+                    type="button"
+                  >
+                    Ta bort
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}
@@ -473,12 +513,10 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
                 <label className="grid gap-2 text-sm">Pris<input className="rounded-md border px-3 py-2" min="0" onChange={(event) => setEditPriceAmount(event.target.value)} required step="0.01" type="number" value={editPriceAmount} /></label>
                 <label className="grid gap-2 text-sm">Valuta<input className="rounded-md border px-3 py-2" maxLength={3} onChange={(event) => setEditCurrency(event.target.value)} required value={editCurrency} /></label>
               </div> : null}
-              {deleteBlocked ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-                <p>{deleteBlocked}</p>
-                {editingService.status === "active" ? <Button className="mt-3" onClick={() => void setServiceStatus({ serviceId: editingService._id, status: "inactive" }).then(() => setEditingServiceId(null)).catch(() => setError(errorMessage()))} type="button" variant="outline">Inaktivera i stället</Button> : null}
-              </div> : null}
               <DialogFooter className="gap-2 sm:justify-between">
-                <Button onClick={() => setConfirmDelete(true)} type="button" variant="destructive">Ta bort tjänst</Button>
+                {servicePermissions?.canDelete ? (
+                  <Button onClick={() => openDeleteDialog(editingService._id)} type="button" variant="destructive">Ta bort tjänst</Button>
+                ) : <span />}
                 <Button disabled={busy} type="submit">{busy ? "Sparar…" : "Spara ändringar"}</Button>
               </DialogFooter>
             </form>
@@ -486,12 +524,40 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={confirmDelete} onOpenChange={(open) => !busy && setConfirmDelete(open)}>
+      <Dialog
+        open={deletingService !== null}
+        onOpenChange={(open) => {
+          if (!busy && !open) {
+            setDeletingServiceId(null);
+            setDeleteBlocked(null);
+          }
+        }}
+      >
         <DialogContent>
-          <DialogHeader><DialogTitle>Ta bort tjänsten permanent?</DialogTitle><DialogDescription>Det går bara om tjänsten aldrig har använts av en bokning, förfrågan eller resurskoppling. Åtgärden kan inte ångras.</DialogDescription></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Ta bort tjänsten permanent?</DialogTitle>
+            <DialogDescription>
+              Aktiva bokningar, förfrågningar och resurskopplingar
+              blockerar borttagning. Genomförda och avbokade poster bevaras i
+              historiken. Åtgärden kan inte ångras.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteBlocked ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              {deleteBlocked}
+            </div>
+          ) : null}
           <DialogFooter>
-            <Button disabled={busy} onClick={() => setConfirmDelete(false)} variant="outline">Behåll tjänsten</Button>
-            <Button disabled={busy} onClick={() => void deleteServicePermanently()} variant="destructive">{busy ? "Tar bort…" : "Ta bort tjänst"}</Button>
+            <Button disabled={busy} onClick={() => { setDeletingServiceId(null); setDeleteBlocked(null); }} variant="outline">
+              {deleteBlocked ? "Stäng" : "Behåll tjänsten"}
+            </Button>
+            {deleteBlocked && deletingService?.status === "active" ? (
+              <Button disabled={busy} onClick={() => void inactivateDeletingService()} variant="outline">
+                {busy ? "Inaktiverar…" : "Inaktivera i stället"}
+              </Button>
+            ) : deleteBlocked ? null : (
+              <Button disabled={busy} onClick={() => void deleteServicePermanently()} variant="destructive">{busy ? "Tar bort…" : "Ta bort tjänst"}</Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

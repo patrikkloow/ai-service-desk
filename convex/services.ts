@@ -154,6 +154,14 @@ export const get = query({
   },
 });
 
+export const permissions = query({
+  args: {},
+  handler: async (ctx) => {
+    const tenant = await requireCurrentTenant(ctx);
+    return { canDelete: tenant.role === "org:admin" };
+  },
+});
+
 export const create = mutation({
   args: {
     name: v.string(),
@@ -251,7 +259,10 @@ export const setStatus = mutation({
   },
 });
 
-/** Permanently removes only a tenant-owned service with no business history. */
+/**
+ * Removes a catalog entry while preserving terminal booking snapshots as
+ * immutable history. Requests and current operational relationships block it.
+ */
 export const remove = mutation({
   args: { serviceId: v.id("services") },
   handler: async (ctx, args) => {
@@ -261,13 +272,14 @@ export const remove = mutation({
       throw new Error("Service is unavailable");
     }
 
-    const [booking, request, resourceLink] = await Promise.all([
+    const [activeBooking, request, resourceLink] = await Promise.all([
       ctx.db
         .query("bookings")
-        .withIndex("by_organizationId_and_serviceId", (q) =>
+        .withIndex("by_organizationId_and_serviceId_and_status", (q) =>
           q
             .eq("organizationId", tenant.organization._id)
-            .eq("serviceId", service._id),
+            .eq("serviceId", service._id)
+            .eq("status", "confirmed"),
         )
         .first(),
       ctx.db
@@ -288,7 +300,7 @@ export const remove = mutation({
         .first(),
     ]);
     const references = [
-      ...(booking ? ["bookings" as const] : []),
+      ...(activeBooking ? ["active_bookings" as const] : []),
       ...(request ? ["service_requests" as const] : []),
       ...(resourceLink ? ["resource_links" as const] : []),
     ];

@@ -1,5 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { attemptCalendarDrop } from "./calendar-drop";
+import {
+  attemptCalendarDrop,
+  scheduleOverrideReason,
+} from "./calendar-drop";
 
 describe("desktop drag rescheduling", () => {
   test("keeps a successful server reschedule", async () => {
@@ -35,5 +38,31 @@ describe("desktop drag rescheduling", () => {
     });
     expect(result).toMatchObject({ kind: "confirmation_required" });
     expect(revert).not.toHaveBeenCalled();
+  });
+
+  test("accepts only a structurally valid Convex schedule error", () => {
+    expect(
+      scheduleOverrideReason({
+        data: {
+          code: "SCHEDULE_OVERRIDE_REQUIRED",
+          reason: "outside_business_hours",
+        },
+      }),
+    ).toContain("öppettider");
+    expect(
+      scheduleOverrideReason({
+        data: { code: "SCHEDULE_OVERRIDE_REQUIRED", reason: "unknown" },
+      }),
+    ).toBeNull();
+    expect(
+      scheduleOverrideReason(
+        new Error("SCHEDULE_OVERRIDE_REQUIRED outside_business_hours"),
+      ),
+    ).toBeNull();
+    expect(
+      scheduleOverrideReason({
+        data: ["SCHEDULE_OVERRIDE_REQUIRED", "outside_business_hours"],
+      }),
+    ).toBeNull();
   });
 });

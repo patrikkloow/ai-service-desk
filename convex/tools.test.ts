@@ -491,6 +491,20 @@ describe("approved tenant-scoped tool layer", () => {
       },
     });
     await expect(
+      organizationA.mutation(api.tools.executeWrite, {
+        request: {
+          toolName: "booking.create",
+          args: {
+            customerId: customerA,
+            serviceId: serviceA,
+            startTime: ten,
+            endTime: eleven,
+            confirmScheduleOverride: true,
+          },
+        } as never,
+      }),
+    ).rejects.toThrow();
+    await expect(
       organizationA.query(api.tools.executeRead, {
         request: { toolName: "database.query", args: {} } as never,
       }),

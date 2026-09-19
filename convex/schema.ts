@@ -229,6 +229,11 @@ export default defineSchema({
   })
     .index("by_organizationId_and_startTime", ["organizationId", "startTime"])
     .index("by_organizationId_and_serviceId", ["organizationId", "serviceId"])
+    .index("by_organizationId_and_serviceId_and_status", [
+      "organizationId",
+      "serviceId",
+      "status",
+    ])
     .index("by_organizationId_and_status_and_startTime", [
       "organizationId",
       "status",
