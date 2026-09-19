@@ -119,16 +119,28 @@ async function serviceAllowsResource(
   ctx: BookingContext,
   organizationId: Id<"organizations">,
   serviceId: Id<"services">,
-  resourceId: Id<"resources">,
+  resource: Doc<"resources">,
 ) {
-  const links = await ctx.db
+  if (resource.serviceRestrictionMode === "all") return true;
+  if (resource.serviceRestrictionMode === "selected") {
+    const links = await ctx.db
+      .query("serviceResources")
+      .withIndex("by_organizationId_and_resourceId", (q) =>
+        q.eq("organizationId", organizationId).eq("resourceId", resource._id),
+      )
+      .collect();
+    return links.some((link) => link.serviceId === serviceId);
+  }
+  // Preserve the previous service-centric rule for unmigrated resources.
+  const legacyLinks = await ctx.db
     .query("serviceResources")
     .withIndex("by_organizationId_and_serviceId", (q) =>
       q.eq("organizationId", organizationId).eq("serviceId", serviceId),
     )
     .collect();
   return (
-    links.length === 0 || links.some((link) => link.resourceId === resourceId)
+    legacyLinks.length === 0 ||
+    legacyLinks.some((link) => link.resourceId === resource._id)
   );
 }
 
@@ -161,7 +173,7 @@ export async function resourceAvailability(
       ctx,
       args.organizationId,
       args.serviceId,
-      args.resourceId,
+      resource,
     ))
   )
     return {

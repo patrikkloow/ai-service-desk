@@ -3,6 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const WORK_WEEK = {
@@ -82,18 +83,27 @@ async function setup() {
 const mondayTen = Date.parse("2033-05-16T08:00:00Z");
 const hour = 60 * 60 * 1000;
 
+function savedBookingId(result: {
+  status: "saved";
+  bookingId: Id<"bookings">;
+  updatedAt: number;
+} | { status: "needs_confirmation" }) {
+  if (result.status !== "saved") throw new Error("Expected a saved booking");
+  return result.bookingId;
+}
+
 describe("booking system v1", () => {
   test("members book while resource administration and tenants remain isolated", async () => {
     const { admin, member, customer, service, resourceA, foreignResource } =
       await setup();
-    const bookingId = await member.mutation(api.calendarBookings.create, {
+    const bookingId = savedBookingId(await member.mutation(api.calendarBookings.create, {
       idempotencyKey: "member-booking-0001",
       customer: { kind: "existing", customerId: customer },
       serviceId: service,
       resourceId: resourceA,
       startTime: mondayTen,
       endTime: mondayTen + hour,
-    });
+    }));
     expect(await member.query(api.bookings.get, { bookingId })).toMatchObject({
       resourceId: resourceA,
       resourceName: "Anna",
@@ -117,7 +127,7 @@ describe("booking system v1", () => {
   });
 
   test("capacity, service restrictions, schedules, blocks, inactivity and back-to-back rules are shared", async () => {
-    const { admin, customer, service, resourceA, resourceB } = await setup();
+    const { t, admin, customer, service, resourceA, resourceB } = await setup();
     const otherService = await admin.mutation(api.services.create, {
       name: "Annat arbete",
       durationMinutes: 60,
@@ -129,6 +139,11 @@ describe("booking system v1", () => {
     await admin.mutation(api.resources.setServices, {
       resourceId: resourceB,
       serviceIds: [otherService],
+    });
+    // Unmigrated rows retain the previous service-centric restriction rule.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(resourceA, { serviceRestrictionMode: undefined });
+      await ctx.db.patch(resourceB, { serviceRestrictionMode: undefined });
     });
     await admin.mutation(api.bookings.create, {
       customerId: customer,
@@ -318,7 +333,7 @@ describe("booking system v1", () => {
     );
     expect(
       await admin.mutation(api.calendarBookings.create, newCustomerInput),
-    ).toBe(newCustomerBooking);
+    ).toEqual(newCustomerBooking);
     expect(
       await t.run(async (ctx) =>
         (
@@ -351,7 +366,7 @@ describe("booking system v1", () => {
     };
     const first = await admin.mutation(api.calendarBookings.create, input);
     const retry = await admin.mutation(api.calendarBookings.create, input);
-    expect(retry).toBe(first);
+    expect(retry).toEqual(first);
     await expect(
       admin.mutation(api.calendarBookings.create, {
         ...input,
@@ -361,7 +376,7 @@ describe("booking system v1", () => {
     expect(
       await admin.query(api.serviceRequests.get, { requestId }),
     ).toMatchObject({
-      bookingId: first,
+      bookingId: savedBookingId(first),
       status: "new",
     });
     await expect(
@@ -389,7 +404,7 @@ describe("booking system v1", () => {
   });
 
   test("staff schedule overrides require confirmation, are audited, and AI-domain paths remain strict", async () => {
-    const { t, member, customer, service, resourceA } = await setup();
+    const { t, admin, member, customer, service, resourceA } = await setup();
     const outsideStart = mondayTen - 2 * hour;
     const input = {
       idempotencyKey: "staff-override-000001",
@@ -401,7 +416,45 @@ describe("booking system v1", () => {
     };
     await expect(
       member.mutation(api.calendarBookings.create, input),
-    ).rejects.toThrow("SCHEDULE_OVERRIDE_REQUIRED");
+    ).resolves.toEqual({
+      status: "needs_confirmation",
+      reason: "outside_business_hours",
+    });
+    expect(await t.run((ctx) => ctx.db.query("bookingCreateAttempts").collect())).toEqual([]);
+    const customerCount = await t.run(async (ctx) =>
+      (await ctx.db.query("customers").collect()).length,
+    );
+    await expect(
+      member.mutation(api.calendarBookings.create, {
+        ...input,
+        idempotencyKey: "staff-override-new-0001",
+        customer: { kind: "new", name: "Får inte skapas ännu" },
+      }),
+    ).resolves.toMatchObject({ status: "needs_confirmation" });
+    expect(
+      await t.run(async (ctx) => (await ctx.db.query("customers").collect()).length),
+    ).toBe(customerCount);
+    expect(await t.run((ctx) => ctx.db.query("bookings").collect())).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("bookingEvents").collect())).toEqual([]);
+
+    await admin.mutation(api.resources.updateSchedule, {
+      resourceId: resourceA,
+      schedule: {
+        ...WORK_WEEK,
+        monday: [{ start: "11:00", end: "17:00" }],
+      },
+    });
+    await expect(
+      member.mutation(api.calendarBookings.create, {
+        ...input,
+        idempotencyKey: "resource-schedule-0001",
+        startTime: mondayTen,
+        endTime: mondayTen + hour,
+      }),
+    ).resolves.toEqual({
+      status: "needs_confirmation",
+      reason: "outside_schedule",
+    });
     await expect(
       member.mutation(api.bookings.create, {
         customerId: customer,
@@ -411,10 +464,10 @@ describe("booking system v1", () => {
         endTime: outsideStart + hour,
       }),
     ).rejects.toThrow("outside_business_hours");
-    const bookingId = await member.mutation(api.calendarBookings.create, {
+    const bookingId = savedBookingId(await member.mutation(api.calendarBookings.create, {
       ...input,
       confirmScheduleOverride: true,
-    });
+    }));
     const created = await member.query(api.bookings.get, { bookingId });
     const earlier = outsideStart - hour;
     await expect(
@@ -425,7 +478,10 @@ describe("booking system v1", () => {
         endTime: earlier + hour,
         expectedUpdatedAt: created!.updatedAt,
       }),
-    ).rejects.toThrow("SCHEDULE_OVERRIDE_REQUIRED");
+    ).resolves.toEqual({
+      status: "needs_confirmation",
+      reason: "outside_business_hours",
+    });
     await member.mutation(api.calendarBookings.reschedule, {
       bookingId,
       resourceId: resourceA,
@@ -505,7 +561,10 @@ describe("booking system v1", () => {
     };
     await expect(
       admin.mutation(api.calendarBookings.reschedule, intendedMove),
-    ).rejects.toThrow("SCHEDULE_OVERRIDE_REQUIRED");
+    ).resolves.toEqual({
+      status: "needs_confirmation",
+      reason: "outside_business_hours",
+    });
     await t.run((ctx) =>
       ctx.db.patch(bookingId, { updatedAt: booking!.updatedAt + 1 }),
     );

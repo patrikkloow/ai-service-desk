@@ -703,6 +703,12 @@ function Detail({
               </select>
             </label>
           )}
+          {data.serviceDeleted && data.serviceName ? (
+            <p className="rounded-lg bg-muted p-3 text-sm">
+              Tidigare tjänst: {data.serviceName} (borttagen ur katalogen).
+              Välj en befintlig bokningsklar tjänst före en ny bokning.
+            </p>
+          ) : null}
           <label className="text-sm">
             Tjänst
             <select

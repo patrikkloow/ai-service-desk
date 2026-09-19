@@ -111,11 +111,12 @@ describe("tenant-scoped customers and services", () => {
     });
 
     const unused = await adminA.mutation(api.services.create, { name: "Felskapad" });
-    await expect(memberA.mutation(api.services.remove, { serviceId: unused }))
+    await expect(memberA.mutation(api.services.remove, { serviceId: unused, scopeToken: "" }))
       .rejects.toThrow("Organization administrator access is required");
-    await expect(adminB.mutation(api.services.remove, { serviceId: unused }))
+    await expect(adminB.mutation(api.services.remove, { serviceId: unused, scopeToken: "" }))
       .rejects.toThrow("Service is unavailable");
-    await adminA.mutation(api.services.remove, { serviceId: unused });
+    const unusedImpact = await adminA.query(api.services.deletionImpact, { serviceId: unused });
+    await adminA.mutation(api.services.remove, { serviceId: unused, scopeToken: unusedImpact.scopeToken });
     expect(await adminA.query(api.services.get, { serviceId: unused })).toBeNull();
 
     const customerId = await adminA.mutation(api.customers.create, { name: "Historikkund" });
@@ -135,7 +136,8 @@ describe("tenant-scoped customers and services", () => {
         updatedAt: 1,
       }),
     );
-    await expect(adminA.mutation(api.services.remove, { serviceId: booked }))
+    const activeImpact = await adminA.query(api.services.deletionImpact, { serviceId: booked });
+    await expect(adminA.mutation(api.services.remove, { serviceId: booked, scopeToken: activeImpact.scopeToken }))
       .rejects.toThrow("SERVICE_IN_USE");
     await t.run((ctx) => ctx.db.patch(activeBooking, { status: "completed" }));
     const cancelledBooking = await t.run((ctx) =>
@@ -153,7 +155,8 @@ describe("tenant-scoped customers and services", () => {
         updatedAt: 2,
       }),
     );
-    await adminA.mutation(api.services.remove, { serviceId: booked });
+    const historyImpact = await adminA.query(api.services.deletionImpact, { serviceId: booked });
+    await adminA.mutation(api.services.remove, { serviceId: booked, scopeToken: historyImpact.scopeToken });
     expect(await adminA.query(api.services.get, { serviceId: booked })).toBeNull();
     expect(await t.run((ctx) => ctx.db.get(activeBooking))).toMatchObject({
       status: "completed",
@@ -170,21 +173,54 @@ describe("tenant-scoped customers and services", () => {
       summary: { wants: "Hjälp", known: "", missing: "" },
       serviceId: requested,
     });
-    await expect(adminA.mutation(api.services.remove, { serviceId: requested }))
-      .rejects.toThrow("SERVICE_IN_USE");
-    await t.run((ctx) => ctx.db.patch(requestId, { status: "completed" }));
-    await expect(adminA.mutation(api.services.remove, { serviceId: requested }))
-      .rejects.toThrow("SERVICE_IN_USE");
-    expect(await t.run((ctx) => ctx.db.get(requestId))).toMatchObject({
-      status: "completed",
+    const requestImpact = await adminA.query(api.services.deletionImpact, { serviceId: requested });
+    expect(requestImpact.requestCount).toBe(1);
+    await adminA.mutation(api.services.remove, {
       serviceId: requested,
+      scopeToken: requestImpact.scopeToken,
     });
+    expect(await t.run((ctx) => ctx.db.get(requestId))).toMatchObject({
+      status: "new",
+      serviceName: "Förfrågad tjänst",
+    });
+    expect((await t.run((ctx) => ctx.db.get(requestId)))?.serviceId).toBeUndefined();
 
     const linked = await adminA.mutation(api.services.create, { name: "Resurskopplad tjänst" });
     const resourceId = await adminA.mutation(api.resources.create, { name: "Resurs", kind: "person" });
     await adminA.mutation(api.resources.setServices, { resourceId, serviceIds: [linked] });
-    await expect(adminA.mutation(api.services.remove, { serviceId: linked }))
-      .rejects.toThrow("SERVICE_IN_USE");
-    expect(await adminA.query(api.services.get, { serviceId: linked })).not.toBeNull();
+    const linkedImpact = await adminA.query(api.services.deletionImpact, { serviceId: linked });
+    expect(linkedImpact.resourceLinkCount).toBe(1);
+    await adminA.mutation(api.services.remove, {
+      serviceId: linked,
+      scopeToken: linkedImpact.scopeToken,
+    });
+    expect(await adminA.query(api.services.get, { serviceId: linked })).toBeNull();
+    expect(await adminA.query(api.resources.list, { includeInactive: true })).toMatchObject({
+      resources: [
+        expect.objectContaining({
+          _id: resourceId,
+          serviceRestrictionMode: "selected",
+          serviceIds: [],
+        }),
+      ],
+    });
+
+    const changing = await adminA.mutation(api.services.create, { name: "Ändrad omfattning" });
+    const beforeChange = await adminA.query(api.services.deletionImpact, { serviceId: changing });
+    const changedRequest = await adminA.mutation(api.serviceRequests.create, {
+      title: "Ny relation",
+      summary: { wants: "Hjälp", known: "", missing: "" },
+      serviceId: changing,
+    });
+    await expect(
+      adminA.mutation(api.services.remove, {
+        serviceId: changing,
+        scopeToken: beforeChange.scopeToken,
+      }),
+    ).rejects.toThrow("SERVICE_DELETE_SCOPE_CHANGED");
+    expect(await adminA.query(api.services.get, { serviceId: changing })).not.toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(changedRequest))).toMatchObject({
+      serviceId: changing,
+    });
   });
 });

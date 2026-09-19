@@ -1,3 +1,19 @@
+export type ScheduleConfirmationReason =
+  | "business_hours_missing"
+  | "outside_business_hours"
+  | "outside_schedule";
+
+export type CalendarBookingResult =
+  | {
+      status: "needs_confirmation";
+      reason: ScheduleConfirmationReason;
+    }
+  | {
+      status: "saved";
+      bookingId: string;
+      updatedAt: number;
+    };
+
 function convexErrorData(reason: unknown): Record<string, unknown> | null {
   if (typeof reason !== "object" || reason === null || Array.isArray(reason))
     return null;
@@ -11,31 +27,34 @@ export function hasConvexErrorCode(reason: unknown, code: string): boolean {
   return convexErrorData(reason)?.code === code;
 }
 
-export function scheduleOverrideReason(reason: unknown): string | null {
-  const data = convexErrorData(reason);
-  if (data?.code !== "SCHEDULE_OVERRIDE_REQUIRED") return null;
-  if (data.reason === "outside_schedule")
-    return "Tiden ligger utanför resursens ordinarie arbetstid.";
-  if (data.reason === "outside_business_hours")
-    return "Tiden ligger utanför företagets ordinarie öppettider.";
-  if (data.reason === "business_hours_missing")
-    return "Företagets öppettider är inte konfigurerade för tiden.";
-  return null;
+export function scheduleConfirmationText(
+  action: "create" | "reschedule",
+  reason: ScheduleConfirmationReason,
+) {
+  const schedule =
+    reason === "outside_schedule"
+      ? "resursens ordinarie arbetstid"
+      : reason === "business_hours_missing"
+        ? "företagets ännu inte konfigurerade ordinarie arbetstid"
+        : "ordinarie arbetstid";
+  return action === "create"
+    ? `Tiden ligger utanför ${schedule}. Vill du boka ändå?`
+    : `Den nya tiden ligger utanför ${schedule}. Vill du flytta ändå?`;
 }
 
 export async function attemptCalendarDrop({
   save,
   revert,
 }: {
-  save: () => Promise<unknown>;
+  save: () => Promise<CalendarBookingResult>;
   revert: () => void;
 }) {
   try {
-    await save();
-    return { kind: "saved" as const };
+    const result = await save();
+    return result.status === "needs_confirmation"
+      ? { kind: "confirmation_required" as const, reason: result.reason }
+      : { kind: "saved" as const, result };
   } catch (reason) {
-    const message = scheduleOverrideReason(reason);
-    if (message) return { kind: "confirmation_required" as const, message };
     revert();
     return { kind: "rejected" as const, reason };
   }

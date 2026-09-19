@@ -199,6 +199,8 @@ export const detail = query({
       bookingId: request?.bookingId,
       customerId: record.customerId,
       serviceId: request?.serviceId,
+      serviceName: request?.serviceName,
+      serviceDeleted: Boolean(request?.serviceName && !request.serviceId),
       customer: customer?.name ?? "Kund ej kopplad",
       summary: request?.summary ?? {
         wants: record.title,

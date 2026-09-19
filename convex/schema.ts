@@ -148,6 +148,10 @@ export default defineSchema({
     name: v.string(),
     kind: resourceKind,
     status: resourceStatus,
+    // Missing means legacy semantics: links => selected, no links => all.
+    serviceRestrictionMode: v.optional(
+      v.union(v.literal("all"), v.literal("selected")),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -376,6 +380,23 @@ export default defineSchema({
     organizationId: v.id("organizations"),
     customerId: v.optional(v.id("customers")),
     serviceId: v.optional(v.id("services")),
+    // Preserved when the catalog service is permanently removed.
+    serviceName: v.optional(v.string()),
+    servicePricing: v.optional(
+      v.union(
+        v.object({ kind: v.literal("not_specified") }),
+        v.object({
+          kind: v.literal("fixed"),
+          amountMinor: v.number(),
+          currency: v.string(),
+        }),
+        v.object({
+          kind: v.literal("from"),
+          amountMinor: v.number(),
+          currency: v.string(),
+        }),
+      ),
+    ),
     // Initial context only; additional conversations can be related later.
     initialConversationId: v.optional(v.id("conversations")),
     bookingId: v.optional(v.id("bookings")),

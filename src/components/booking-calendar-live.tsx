@@ -12,7 +12,7 @@ import interactionPlugin from "@fullcalendar/react/interaction";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import formaThemePlugin from "@fullcalendar/react/themes/forma";
 import svLocale from "@fullcalendar/react/locales/sv";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { CalendarPlus, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { api } from "../../convex/_generated/api";
@@ -36,9 +36,9 @@ import {
   localDateTimeToEpoch,
 } from "@/lib/booking-time";
 import {
-  attemptCalendarDrop,
+  type CalendarBookingResult,
   hasConvexErrorCode,
-  scheduleOverrideReason,
+  scheduleConfirmationText,
 } from "@/lib/calendar-drop";
 
 const DAY_MS = 86_400_000;
@@ -88,9 +88,23 @@ function bookingError(reason: unknown, fallback: string) {
 }
 
 type PendingOverride = {
+  operationId: string;
   action: "create" | "reschedule";
   message: string;
-  confirm: () => Promise<void>;
+  startTime: number;
+  endTime: number;
+  resourceId: Id<"resources">;
+  resourceName: string;
+  bookingId?: Id<"bookings">;
+  expectedUpdatedAt?: number;
+  confirm: () => Promise<CalendarBookingResult>;
+  onSaved: (result: Extract<CalendarBookingResult, { status: "saved" }>) => void;
+  recover?: () => Promise<
+    | { status: "saved"; result: Extract<CalendarBookingResult, { status: "saved" }> }
+    | { status: "not_saved" }
+    | { status: "unknown" }
+  >;
+  onUncertain?: () => void;
   cancel?: () => void;
 };
 
@@ -131,6 +145,7 @@ export function BookingCalendarLive({
   );
   const cancelBooking = useMutation(api.bookings.cancel);
   const completeBooking = useMutation(api.bookings.complete);
+  const convex = useConvex();
   const calendarRef = useRef<CalendarRef>(null);
   const isDesktop = useSyncExternalStore(
     subscribeDesktop,
@@ -138,6 +153,9 @@ export function BookingCalendarLive({
     () => false,
   );
   const savingRef = useRef(false);
+  const pendingOverrideRef = useRef<PendingOverride | null>(null);
+  const dragOperationsRef = useRef(new Map<string, string>());
+  const operationSequenceRef = useRef(0);
   const [mobileDate, setMobileDate] = useState(initialDate ?? "");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"bookings"> | null>(null);
@@ -175,8 +193,8 @@ export function BookingCalendarLive({
       resource.status === "active" &&
       resource.scheduleConfigured &&
       (!service ||
-        service.resourceIds.length === 0 ||
-        service.resourceIds.includes(resource._id)),
+        resource.serviceRestrictionMode === "all" ||
+        resource.serviceIds.includes(service._id)),
   );
   const selectedResources = (() => {
     const selectedService = context?.services.find(
@@ -187,8 +205,8 @@ export function BookingCalendarLive({
         resource.status === "active" &&
         resource.scheduleConfigured &&
         (!selectedService ||
-          selectedService.resourceIds.length === 0 ||
-          selectedService.resourceIds.includes(resource._id)),
+          resource.serviceRestrictionMode === "all" ||
+          resource.serviceIds.includes(selectedService._id)),
     );
   })();
   const customerResults = (() => {
@@ -235,6 +253,80 @@ export function BookingCalendarLive({
       (booking) => localDate(booking.startTime, timezone) === shownMobileDate,
     )
     .sort((left, right) => left.startTime - right.startTime);
+
+  function nextOperationId() {
+    operationSequenceRef.current += 1;
+    return `calendar-operation-${operationSequenceRef.current}`;
+  }
+
+  function installPendingOverride(value: PendingOverride) {
+    if (pendingOverrideRef.current) {
+      value.cancel?.();
+      return false;
+    }
+    pendingOverrideRef.current = value;
+    setPendingOverride(value);
+    return true;
+  }
+
+  function clearPendingOverride(operationId: string) {
+    if (pendingOverrideRef.current?.operationId !== operationId) return false;
+    pendingOverrideRef.current = null;
+    setPendingOverride(null);
+    return true;
+  }
+
+  async function recoverCreate(idempotencyKey: string) {
+    try {
+      const attempt = await convex.query(api.calendarBookings.createAttempt, {
+        idempotencyKey,
+      });
+      return attempt
+        ? ({
+            status: "saved" as const,
+            result: {
+              status: "saved" as const,
+              bookingId: attempt.bookingId,
+              updatedAt: attempt.updatedAt,
+            },
+          } as const)
+        : ({ status: "not_saved" as const } as const);
+    } catch {
+      return { status: "unknown" as const };
+    }
+  }
+
+  async function recoverReschedule(input: {
+    bookingId: Id<"bookings">;
+    resourceId: Id<"resources">;
+    startTime: number;
+    endTime: number;
+    expectedUpdatedAt: number;
+  }) {
+    try {
+      const server = await convex.query(api.calendarBookings.position, {
+        bookingId: input.bookingId,
+      });
+      if (
+        server?.status === "confirmed" &&
+        server.resourceId === input.resourceId &&
+        server.startTime === input.startTime &&
+        server.endTime === input.endTime &&
+        server.updatedAt > input.expectedUpdatedAt
+      )
+        return {
+          status: "saved" as const,
+          result: {
+            status: "saved" as const,
+            bookingId: server.bookingId,
+            updatedAt: server.updatedAt,
+          },
+        };
+      return { status: "not_saved" as const };
+    } catch {
+      return { status: "unknown" as const };
+    }
+  }
 
   function markDraftChanged() {
     if (attemptKey) setAttemptKey(idempotencyKey());
@@ -349,22 +441,36 @@ export function BookingCalendarLive({
         ...(notes.trim() ? { notes } : {}),
       };
     try {
-      await createBooking(input);
-      setCreateOpen(false);
-    } catch (reason) {
-      const overrideMessage = scheduleOverrideReason(reason);
-      if (overrideMessage) {
-        setPendingOverride({
+      const result = await createBooking(input);
+      if (result.status === "needs_confirmation") {
+        const resourceName =
+          context?.resources.find((resource) => resource._id === resourceId)
+            ?.name ?? "Vald resurs";
+        installPendingOverride({
+          operationId: nextOperationId(),
           action: "create",
-          message: overrideMessage,
-          confirm: async () => {
-            await createBooking({ ...input, confirmScheduleOverride: true });
-            setCreateOpen(false);
-          },
+          message: scheduleConfirmationText("create", result.reason),
+          startTime: input.startTime,
+          endTime: input.endTime,
+          resourceId,
+          resourceName,
+          confirm: () =>
+            createBooking({ ...input, confirmScheduleOverride: true }),
+          recover: () => recoverCreate(input.idempotencyKey),
+          onSaved: () => setCreateOpen(false),
         });
       } else {
-        setError(bookingError(reason, "Bokningen kunde inte sparas."));
+        setCreateOpen(false);
       }
+    } catch (reason) {
+      const recovered = await recoverCreate(input.idempotencyKey);
+      if (recovered.status === "saved") setCreateOpen(false);
+      else if (recovered.status === "not_saved")
+        setError(bookingError(reason, "Bokningen kunde inte sparas."));
+      else
+        setError(
+          "Utfallet kunde inte verifieras mot servern. Ladda om kalendern innan du försöker igen.",
+        );
     } finally {
       savingRef.current = false;
       setBusy(false);
@@ -387,25 +493,41 @@ export function BookingCalendarLive({
         startTime,
         endTime: startTime + (selected.endTime - selected.startTime),
         expectedUpdatedAt: selected.updatedAt,
-      };
+    };
     try {
-      await rescheduleBooking(input);
-      setRescheduling(false);
-      setError(null);
-    } catch (reason) {
-      const overrideMessage = scheduleOverrideReason(reason);
-      if (overrideMessage) {
-        setPendingOverride({
+      const result = await rescheduleBooking(input);
+      if (result.status === "needs_confirmation") {
+        const resourceName =
+          context?.resources.find((resource) => resource._id === resourceId)
+            ?.name ?? selected.resourceName ?? "Vald resurs";
+        installPendingOverride({
+          operationId: nextOperationId(),
           action: "reschedule",
-          message: overrideMessage,
-          confirm: async () => {
-            await rescheduleBooking({ ...input, confirmScheduleOverride: true });
-            setRescheduling(false);
-          },
+          message: scheduleConfirmationText("reschedule", result.reason),
+          bookingId: input.bookingId,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          resourceId,
+          resourceName,
+          confirm: () =>
+            rescheduleBooking({ ...input, confirmScheduleOverride: true }),
+          recover: () => recoverReschedule(input),
+          onSaved: () => setRescheduling(false),
         });
       } else {
-        setError(bookingError(reason, "Ombokningen kunde inte sparas."));
+        setRescheduling(false);
+        setError(null);
       }
+    } catch (reason) {
+      const recovered = await recoverReschedule(input);
+      if (recovered.status === "saved") setRescheduling(false);
+      else if (recovered.status === "not_saved")
+        setError(bookingError(reason, "Ombokningen kunde inte sparas."));
+      else
+        setError(
+          "Utfallet kunde inte verifieras mot servern. Ladda om kalendern innan du försöker igen.",
+        );
     } finally {
       savingRef.current = false;
       setBusy(false);
@@ -413,16 +535,43 @@ export function BookingCalendarLive({
   }
 
   async function confirmScheduleOverride() {
-    if (!pendingOverride || savingRef.current) return;
+    const operation = pendingOverrideRef.current;
+    if (!operation || savingRef.current) return;
     savingRef.current = true;
     setBusy(true);
     try {
-      await pendingOverride.confirm();
-      setPendingOverride(null);
+      const result = await operation.confirm();
+      if (pendingOverrideRef.current?.operationId !== operation.operationId)
+        return;
+      if (result.status !== "saved") {
+        setError("Tiden behöver bedömas på nytt. Försök igen.");
+        return;
+      }
+      operation.onSaved(result);
+      clearPendingOverride(operation.operationId);
       setError(null);
     } catch (reason) {
-      pendingOverride.cancel?.();
-      setPendingOverride(null);
+      if (pendingOverrideRef.current?.operationId !== operation.operationId)
+        return;
+      const recovered = await operation.recover?.();
+      if (pendingOverrideRef.current?.operationId !== operation.operationId)
+        return;
+      if (recovered?.status === "saved") {
+        operation.onSaved(recovered.result);
+        clearPendingOverride(operation.operationId);
+        setError(null);
+        return;
+      }
+      if (recovered?.status === "unknown") {
+        operation.onUncertain?.();
+        clearPendingOverride(operation.operationId);
+        setError(
+          "Utfallet kunde inte verifieras mot servern. Ladda om kalendern innan du försöker igen.",
+        );
+        return;
+      }
+      operation.cancel?.();
+      clearPendingOverride(operation.operationId);
       setError(bookingError(reason, "Ändringen kunde inte sparas."));
     } finally {
       savingRef.current = false;
@@ -431,8 +580,10 @@ export function BookingCalendarLive({
   }
 
   function cancelScheduleOverride() {
-    pendingOverride?.cancel?.();
-    setPendingOverride(null);
+    const operation = pendingOverrideRef.current;
+    if (!operation || savingRef.current) return;
+    operation.cancel?.();
+    clearPendingOverride(operation.operationId);
   }
 
   async function handleEventDrop(info: {
@@ -441,13 +592,15 @@ export function BookingCalendarLive({
       start: Date | null;
       end: Date | null;
       extendedProps: Record<string, unknown>;
+      setExtendedProp?: (name: string, value: unknown) => void;
     };
     revert: () => void;
   }) {
+    const bookingId = info.event.id as Id<"bookings">;
     const resourceId = info.event.extendedProps.resourceId;
     const updatedAt = info.event.extendedProps.updatedAt;
     if (
-      savingRef.current ||
+      dragOperationsRef.current.has(bookingId) ||
       !info.event.start ||
       !info.event.end ||
       typeof resourceId !== "string" ||
@@ -457,35 +610,81 @@ export function BookingCalendarLive({
       return;
     }
     const input = {
-      bookingId: info.event.id as Id<"bookings">,
+      bookingId,
       resourceId: resourceId as Id<"resources">,
       startTime: info.event.start.getTime(),
       endTime: info.event.end.getTime(),
       expectedUpdatedAt: updatedAt,
     };
-    savingRef.current = true;
-    setBusy(true);
+    const operationId = nextOperationId();
+    dragOperationsRef.current.set(bookingId, operationId);
     setError(null);
     try {
-      const result = await attemptCalendarDrop({
-        save: () => rescheduleBooking(input),
-        revert: info.revert,
-      });
-      if (result.kind === "confirmation_required") {
-        setPendingOverride({
+      const result = await rescheduleBooking(input);
+      if (dragOperationsRef.current.get(bookingId) !== operationId) return;
+      if (result.status === "needs_confirmation") {
+        const resourceName =
+          context?.resources.find((resource) => resource._id === resourceId)
+            ?.name ?? "Vald resurs";
+        const installed = installPendingOverride({
+          operationId,
           action: "reschedule",
-          message: result.message,
-          confirm: async () => {
-            await rescheduleBooking({ ...input, confirmScheduleOverride: true });
+          message: scheduleConfirmationText("reschedule", result.reason),
+          bookingId,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          resourceId: resourceId as Id<"resources">,
+          resourceName,
+          confirm: () =>
+            rescheduleBooking({ ...input, confirmScheduleOverride: true }),
+          recover: () => recoverReschedule(input),
+          onSaved: (saved) => {
+            if (dragOperationsRef.current.get(bookingId) !== operationId)
+              return;
+            info.event.setExtendedProp?.("updatedAt", saved.updatedAt);
+            dragOperationsRef.current.delete(bookingId);
           },
-          cancel: info.revert,
+          onUncertain: () => info.revert(),
+          cancel: () => {
+            if (dragOperationsRef.current.get(bookingId) !== operationId)
+              return;
+            info.revert();
+            dragOperationsRef.current.delete(bookingId);
+          },
         });
-      } else if (result.kind === "rejected") {
-        setError(bookingError(result.reason, "Ombokningen kunde inte sparas."));
+        if (!installed) {
+          dragOperationsRef.current.delete(bookingId);
+          setError(
+            "Slutför den pågående schemabekräftelsen innan nästa flytt.",
+          );
+        }
+      } else {
+        info.event.setExtendedProp?.("updatedAt", result.updatedAt);
+        dragOperationsRef.current.delete(bookingId);
       }
-    } finally {
-      savingRef.current = false;
-      setBusy(false);
+    } catch (reason) {
+      if (dragOperationsRef.current.get(bookingId) !== operationId) return;
+      const recovered = await recoverReschedule(input);
+      if (dragOperationsRef.current.get(bookingId) !== operationId) return;
+      if (recovered.status === "saved") {
+        info.event.setExtendedProp?.(
+          "updatedAt",
+          recovered.result.updatedAt,
+        );
+        dragOperationsRef.current.delete(bookingId);
+        setError(null);
+      } else if (recovered.status === "not_saved") {
+        info.revert();
+        dragOperationsRef.current.delete(bookingId);
+        setError(bookingError(reason, "Ombokningen kunde inte sparas."));
+      } else {
+        info.revert();
+        setError(
+          "Utfallet kunde inte verifieras mot servern. Ladda om kalendern innan bokningen flyttas igen.",
+        );
+        // Keep this booking locked until a reload rather than risk a blind retry.
+      }
     }
   }
 
@@ -759,8 +958,12 @@ export function BookingCalendarLive({
                     );
                     if (
                       nextService &&
-                      nextService.resourceIds.length > 0 &&
-                      !nextService.resourceIds.includes(resourceId)
+                      !context.resources.some(
+                        (resource) =>
+                          resource._id === resourceId &&
+                          (resource.serviceRestrictionMode === "all" ||
+                            resource.serviceIds.includes(nextService._id)),
+                      )
                     )
                       setResourceId("");
                   }
@@ -1069,9 +1272,26 @@ export function BookingCalendarLive({
                 : "Boka utanför ordinarie arbetstid?"}
             </DialogTitle>
             <DialogDescription>
-              {pendingOverride?.message} Bekräftelsen loggas. Blockerade tider och andra bokningar kontrolleras fortfarande.
+              {pendingOverride?.message}
             </DialogDescription>
           </DialogHeader>
+          {pendingOverride ? (
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+              <p className="font-medium">{pendingOverride.resourceName}</p>
+              <p className="text-muted-foreground">
+                {epochToLocalInput(pendingOverride.startTime, timezone).replace(
+                  "T",
+                  " ",
+                )}
+                –{epochToLocalInput(pendingOverride.endTime, timezone).slice(11)}{" "}
+                ({timezone})
+              </p>
+              <p className="mt-2 text-muted-foreground">
+                Bekräftelsen gäller bara denna tid och resurs. Blockerade tider
+                och andra bokningar kontrolleras fortfarande.
+              </p>
+            </div>
+          ) : null}
           <DialogFooter>
             <Button disabled={busy} onClick={cancelScheduleOverride} variant="outline">Avbryt</Button>
             <Button disabled={busy} onClick={() => void confirmScheduleOverride()}>

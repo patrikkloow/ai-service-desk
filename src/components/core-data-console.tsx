@@ -49,6 +49,20 @@ function serviceDeleteMessage(reason: unknown): string {
       ", ",
     ) || "verksamhetsdata"}. Inaktivera den i stället.`;
   }
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "code" in data &&
+    data.code === "SERVICE_DELETE_SCOPE_CHANGED"
+  )
+    return "Förfrågningar eller resurskopplingar har ändrats sedan dialogen öppnades. Granska den uppdaterade omfattningen och bekräfta igen.";
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "code" in data &&
+    data.code === "SERVICE_DELETE_TOO_LARGE"
+  )
+    return "Tjänsten har för många kopplingar för en säker atomisk borttagning. Ingen data har ändrats.";
   const message = reason instanceof Error ? reason.message : "";
   if (message.includes("administrator"))
     return "Endast en administratör kan ta bort en tjänst permanent.";
@@ -118,6 +132,14 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   const editingService = services?.find((service) => service._id === editingServiceId) ?? null;
   const deletingService =
     services?.find((service) => service._id === deletingServiceId) ?? null;
+  const deletionImpact = useQuery(
+    api.services.deletionImpact,
+    deletingServiceId ? { serviceId: deletingServiceId } : "skip",
+  );
+  const activeBookingBlock = deletionImpact?.blockedByActiveBooking
+    ? "Tjänsten kan inte tas bort eftersom den har aktiva eller oavslutade bokningar. Inaktivera den i stället."
+    : null;
+  const effectiveDeleteBlock = deleteBlocked ?? activeBookingBlock;
 
   if (!isReady) {
     return (
@@ -269,11 +291,14 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
   }
 
   async function deleteServicePermanently() {
-    if (!deletingServiceId) return;
+    if (!deletingServiceId || !deletionImpact) return;
     setBusy(true);
     setDeleteBlocked(null);
     try {
-      await removeService({ serviceId: deletingServiceId });
+      await removeService({
+        serviceId: deletingServiceId,
+        scopeToken: deletionImpact.scopeToken,
+      });
       if (editingServiceId === deletingServiceId) setEditingServiceId(null);
       setDeletingServiceId(null);
     } catch (reason) {
@@ -537,26 +562,39 @@ export function CoreDataConsole({ area }: { area: "customers" | "services" }) {
           <DialogHeader>
             <DialogTitle>Ta bort tjänsten permanent?</DialogTitle>
             <DialogDescription>
-              Aktiva bokningar, förfrågningar och resurskopplingar
-              blockerar borttagning. Genomförda och avbokade poster bevaras i
-              historiken. Åtgärden kan inte ångras.
+              Aktiva eller oavslutade bokningar blockerar borttagning.
+              Genomförda och avbokade bokningar behåller sina historiska
+              uppgifter. Förfrågningar behålls med en markering om den tidigare
+              tjänsten, och resurskopplingar tas bort utan att resurserna
+              raderas. Åtgärden kan inte ångras.
             </DialogDescription>
           </DialogHeader>
-          {deleteBlocked ? (
+          {deletionImpact ? (
+            <p className="text-sm text-muted-foreground">
+              {deletionImpact.requestCount} förfrågan/förfrågningar och{" "}
+              {deletionImpact.resourceLinkCount} resurskoppling/resurskopplingar
+              hanteras atomiskt vid borttagningen.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground" role="status">
+              Kontrollerar beroenden…
+            </p>
+          )}
+          {effectiveDeleteBlock ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-              {deleteBlocked}
+              {effectiveDeleteBlock}
             </div>
           ) : null}
           <DialogFooter>
             <Button disabled={busy} onClick={() => { setDeletingServiceId(null); setDeleteBlocked(null); }} variant="outline">
-              {deleteBlocked ? "Stäng" : "Behåll tjänsten"}
+              {effectiveDeleteBlock ? "Stäng" : "Behåll tjänsten"}
             </Button>
-            {deleteBlocked && deletingService?.status === "active" ? (
+            {effectiveDeleteBlock && deletingService?.status === "active" ? (
               <Button disabled={busy} onClick={() => void inactivateDeletingService()} variant="outline">
                 {busy ? "Inaktiverar…" : "Inaktivera i stället"}
               </Button>
-            ) : deleteBlocked ? null : (
-              <Button disabled={busy} onClick={() => void deleteServicePermanently()} variant="destructive">{busy ? "Tar bort…" : "Ta bort tjänst"}</Button>
+            ) : effectiveDeleteBlock ? null : (
+              <Button disabled={busy || !deletionImpact} onClick={() => void deleteServicePermanently()} variant="destructive">{busy ? "Tar bort…" : "Ta bort tjänst"}</Button>
             )}
           </DialogFooter>
         </DialogContent>

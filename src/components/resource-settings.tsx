@@ -49,6 +49,9 @@ export function ResourceSettings() {
   const [draftServices, setDraftServices] = useState<Array<
     Id<"services">
   > | null>(null);
+  const [draftServiceMode, setDraftServiceMode] = useState<
+    "all" | "selected" | null
+  >(null);
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
   const [blockNote, setBlockNote] = useState("");
@@ -62,6 +65,8 @@ export function ResourceSettings() {
     (selected?.schedule?.schedule as Schedule | undefined) ??
     null;
   const selectedServices = draftServices ?? selected?.serviceIds ?? [];
+  const selectedServiceMode =
+    draftServiceMode ?? selected?.serviceRestrictionMode ?? "all";
   const [blockRange] = useState(() => {
     const now = Date.now();
     return {
@@ -96,6 +101,7 @@ export function ResourceSettings() {
     setSelectedId(value);
     setDraftSchedule(null);
     setDraftServices(null);
+    setDraftServiceMode(null);
     setMessage(null);
   }
 
@@ -348,9 +354,25 @@ export function ResourceSettings() {
           <section className="rounded-xl border bg-card p-5 sm:p-6">
             <h2 className="font-semibold">Tjänster</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              En tjänst utan resurskoppling kan bokas på alla aktiva resurser.
-              När en tjänst kopplas här begränsas den till de valda resurserna.
+              Välj om resursen kan utföra alla tjänster eller bara de markerade.
+              En tom markerad lista betyder att inga tjänster är tillåtna.
             </p>
+            <label className="mt-4 grid max-w-sm gap-2 text-sm font-medium">
+              Tillåtna tjänster
+              <select
+                className="rounded-lg border bg-background px-3"
+                disabled={!data.canEdit}
+                onChange={(event) => {
+                  const mode = event.target.value as "all" | "selected";
+                  setDraftServiceMode(mode);
+                  if (mode === "all") setDraftServices([]);
+                }}
+                value={selectedServiceMode}
+              >
+                <option value="all">Alla aktiva tjänster</option>
+                <option value="selected">Endast markerade tjänster</option>
+              </select>
+            </label>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {services
                 .filter((service) => service.status === "active")
@@ -361,15 +383,18 @@ export function ResourceSettings() {
                   >
                     <input
                       checked={selectedServices.includes(service._id)}
-                      disabled={!data.canEdit}
+                      disabled={!data.canEdit || selectedServiceMode === "all"}
                       onChange={(event) =>
-                        setDraftServices(
-                          event.target.checked
-                            ? [...selectedServices, service._id]
-                            : selectedServices.filter(
-                                (id) => id !== service._id,
-                              ),
-                        )
+                        {
+                          setDraftServiceMode("selected");
+                          setDraftServices(
+                            event.target.checked
+                              ? [...selectedServices, service._id]
+                              : selectedServices.filter(
+                                  (id) => id !== service._id,
+                                ),
+                          );
+                        }
                       }
                       type="checkbox"
                     />
@@ -380,14 +405,20 @@ export function ResourceSettings() {
             {data.canEdit ? (
               <Button
                 className="mt-4"
-                disabled={busy || draftServices === null}
+                disabled={
+                  busy ||
+                  (draftServices === null && draftServiceMode === null)
+                }
                 onClick={() =>
                   void run(async () => {
                     await setServices({
                       resourceId: selected._id,
-                      serviceIds: selectedServices,
+                      serviceIds:
+                        selectedServiceMode === "all" ? [] : selectedServices,
+                      serviceRestrictionMode: selectedServiceMode,
                     });
                     setDraftServices(null);
+                    setDraftServiceMode(null);
                   }, "Tjänstekopplingarna sparades.")
                 }
               >

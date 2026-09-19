@@ -1,15 +1,22 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   attemptCalendarDrop,
-  scheduleOverrideReason,
+  scheduleConfirmationText,
 } from "./calendar-drop";
 
 describe("desktop drag rescheduling", () => {
   test("keeps a successful server reschedule", async () => {
     const revert = vi.fn();
     await expect(
-      attemptCalendarDrop({ save: async () => "booking", revert }),
-    ).resolves.toEqual({ kind: "saved" });
+      attemptCalendarDrop({
+        save: async () => ({
+          status: "saved",
+          bookingId: "booking",
+          updatedAt: 2,
+        }),
+        revert,
+      }),
+    ).resolves.toMatchObject({ kind: "saved" });
     expect(revert).not.toHaveBeenCalled();
   });
 
@@ -28,41 +35,25 @@ describe("desktop drag rescheduling", () => {
     expect(revert).toHaveBeenCalledOnce();
   });
 
-  test("waits for explicit schedule confirmation before reverting", async () => {
+  test("treats typed schedule confirmation as a normal result", async () => {
     const revert = vi.fn();
     const result = await attemptCalendarDrop({
-      save: async () => {
-        throw { data: { code: "SCHEDULE_OVERRIDE_REQUIRED", reason: "outside_schedule" } };
-      },
+      save: async () => ({
+        status: "needs_confirmation",
+        reason: "outside_schedule",
+      }),
       revert,
     });
     expect(result).toMatchObject({ kind: "confirmation_required" });
     expect(revert).not.toHaveBeenCalled();
   });
 
-  test("accepts only a structurally valid Convex schedule error", () => {
+  test("uses explicit Swedish action text for typed reasons", () => {
     expect(
-      scheduleOverrideReason({
-        data: {
-          code: "SCHEDULE_OVERRIDE_REQUIRED",
-          reason: "outside_business_hours",
-        },
-      }),
-    ).toContain("öppettider");
+      scheduleConfirmationText("create", "outside_business_hours"),
+    ).toBe("Tiden ligger utanför ordinarie arbetstid. Vill du boka ändå?");
     expect(
-      scheduleOverrideReason({
-        data: { code: "SCHEDULE_OVERRIDE_REQUIRED", reason: "unknown" },
-      }),
-    ).toBeNull();
-    expect(
-      scheduleOverrideReason(
-        new Error("SCHEDULE_OVERRIDE_REQUIRED outside_business_hours"),
-      ),
-    ).toBeNull();
-    expect(
-      scheduleOverrideReason({
-        data: ["SCHEDULE_OVERRIDE_REQUIRED", "outside_business_hours"],
-      }),
-    ).toBeNull();
+      scheduleConfirmationText("reschedule", "outside_schedule"),
+    ).toContain("resursens ordinarie arbetstid");
   });
 });

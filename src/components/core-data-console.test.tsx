@@ -22,6 +22,13 @@ vi.mock("convex/react", () => ({
     const name = getFunctionName(reference);
     if (name === "customers:list") return [];
     if (name === "services:permissions") return { canDelete: mock.canDelete };
+    if (name === "services:deletionImpact")
+      return {
+        blockedByActiveBooking: false,
+        requestCount: 1,
+        resourceLinkCount: 2,
+        scopeToken: "scope-1",
+      };
     if (name === "services:list")
       return [
         {

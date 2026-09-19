@@ -15,6 +15,22 @@ import {
 import { requireCurrentTenant } from "./tenant";
 
 const MAX_CALENDAR_RANGE_MS = 45 * 24 * 60 * 60 * 1000;
+const scheduleConfirmationReason = v.union(
+  v.literal("business_hours_missing"),
+  v.literal("outside_business_hours"),
+  v.literal("outside_schedule"),
+);
+const calendarBookingResult = v.union(
+  v.object({
+    status: v.literal("needs_confirmation"),
+    reason: scheduleConfirmationReason,
+  }),
+  v.object({
+    status: v.literal("saved"),
+    bookingId: v.id("bookings"),
+    updatedAt: v.number(),
+  }),
+);
 
 function validateCalendarRange(startTime: number, endTime: number) {
   if (
@@ -47,6 +63,53 @@ function customerEmail(value: string) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     throw new Error("Customer email is invalid");
   return email;
+}
+
+async function validateBookingReferencesBeforeConfirmation(
+  ctx: MutationCtx,
+  args: {
+    organizationId: Id<"organizations">;
+    customer:
+      | { kind: "existing"; customerId: Id<"customers"> }
+      | { kind: "new" };
+    serviceId: Id<"services">;
+    serviceRequestId?: Id<"serviceRequests">;
+  },
+) {
+  const service = await ctx.db.get(args.serviceId);
+  if (
+    !service ||
+    service.organizationId !== args.organizationId ||
+    service.status !== "active"
+  )
+    throw new Error("Service is unavailable");
+  if (!service.durationMinutes || service.durationMinutes < 1)
+    throw new Error("Service duration must be configured");
+  const customer =
+    args.customer.kind === "existing"
+      ? await ctx.db.get(args.customer.customerId)
+      : null;
+  if (
+    args.customer.kind === "existing" &&
+    (!customer ||
+      customer.organizationId !== args.organizationId ||
+      customer.status !== "active")
+  )
+    throw new Error("Customer is unavailable");
+  if (!args.serviceRequestId) return;
+  const request = await ctx.db.get(args.serviceRequestId);
+  if (!request || request.organizationId !== args.organizationId)
+    throw new Error("Service request is unavailable");
+  if (request.bookingId)
+    throw new Error("Service request already has a booking");
+  if (
+    request.customerId &&
+    (args.customer.kind !== "existing" ||
+      request.customerId !== args.customer.customerId)
+  )
+    throw new Error("Booking customer must match request");
+  if (request.serviceId && request.serviceId !== args.serviceId)
+    throw new Error("Booking service must match request");
 }
 
 async function bookableRecords(
@@ -137,7 +200,13 @@ async function createResourceBooking(
       serviceRequestId: request._id,
       updatedAt: now,
     });
-    await ctx.db.patch(request._id, { bookingId, updatedAt: now });
+    await ctx.db.patch(request._id, {
+      bookingId,
+      serviceId: service._id,
+      serviceName: service.name,
+      servicePricing: service.pricing,
+      updatedAt: now,
+    });
   }
   return bookingId;
 }
@@ -195,6 +264,12 @@ export const context = query({
           .order("desc")
           .take(100),
       ]);
+    const allServiceLinks = await ctx.db
+      .query("serviceResources")
+      .withIndex("by_organizationId_and_resourceId", (q) =>
+        q.eq("organizationId", tenant.organization._id),
+      )
+      .collect();
     const calendarResources = [];
     for (const resource of resources) {
       const [schedule, links] = await Promise.all([
@@ -206,19 +281,31 @@ export const context = query({
               .eq("resourceId", resource._id),
           )
           .unique(),
-        ctx.db
-          .query("serviceResources")
-          .withIndex("by_organizationId_and_resourceId", (q) =>
-            q
-              .eq("organizationId", tenant.organization._id)
-              .eq("resourceId", resource._id),
-          )
-          .collect(),
+        Promise.resolve(
+          allServiceLinks.filter((link) => link.resourceId === resource._id),
+        ),
       ]);
+      const legacyAllowedServiceIds = services
+        .filter((service) => {
+          const serviceLinks = allServiceLinks.filter(
+            (link) => link.serviceId === service._id,
+          );
+          return (
+            serviceLinks.length === 0 ||
+            serviceLinks.some((link) => link.resourceId === resource._id)
+          );
+        })
+        .map((service) => service._id);
+      const serviceIds = resource.serviceRestrictionMode
+        ? links.map((link) => link.serviceId)
+        : legacyAllowedServiceIds;
       calendarResources.push({
         ...resource,
         scheduleConfigured: schedule?.configured ?? false,
-        serviceIds: links.map((link) => link.serviceId),
+        serviceIds,
+        serviceRestrictionMode:
+          resource.serviceRestrictionMode ??
+          (serviceIds.length === services.length ? "all" : "selected"),
       });
     }
     const calendarServices = [];
@@ -314,8 +401,19 @@ const scheduleReasons = new Set([
   "outside_schedule",
 ]);
 
-function scheduleWarning(reason: string) {
-  throw new ConvexError({ code: "SCHEDULE_OVERRIDE_REQUIRED", reason });
+function confirmationReason(
+  reason: string,
+): "business_hours_missing" | "outside_business_hours" | "outside_schedule" {
+  if (reason === "business_hours_missing") return reason;
+  if (reason === "outside_business_hours") return reason;
+  if (reason === "outside_schedule") return reason;
+  throw new Error("Schedule confirmation reason is invalid");
+}
+
+async function savedBookingResult(ctx: MutationCtx, bookingId: Id<"bookings">) {
+  const booking = await ctx.db.get(bookingId);
+  if (!booking) throw new Error("Booking is unavailable");
+  return { status: "saved" as const, bookingId, updatedAt: booking.updatedAt };
 }
 
 export const create = mutation({
@@ -330,6 +428,7 @@ export const create = mutation({
     notes: v.optional(v.string()),
     confirmScheduleOverride: v.optional(v.boolean()),
   },
+  returns: calendarBookingResult,
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenant(ctx);
     const key = args.idempotencyKey.trim();
@@ -370,8 +469,14 @@ export const create = mutation({
     if (existing) {
       if (existing.fingerprint !== fingerprint)
         throw new Error("Idempotency key was already used for another booking");
-      return existing.bookingId;
+      return await savedBookingResult(ctx, existing.bookingId);
     }
+    await validateBookingReferencesBeforeConfirmation(ctx, {
+      organizationId: tenant.organization._id,
+      customer,
+      serviceId: args.serviceId,
+      serviceRequestId: args.serviceRequestId,
+    });
     const strictAvailability = await findAvailableResource(ctx, {
       organizationId: tenant.organization._id,
       serviceId: args.serviceId,
@@ -383,7 +488,10 @@ export const create = mutation({
       !strictAvailability.available &&
       scheduleReasons.has(strictAvailability.reason);
     if (overrideRequired && !args.confirmScheduleOverride)
-      scheduleWarning(strictAvailability.reason);
+      return {
+        status: "needs_confirmation" as const,
+        reason: confirmationReason(strictAvailability.reason),
+      };
     const customerId =
       customer.kind === "existing"
         ? customer.customerId
@@ -423,7 +531,7 @@ export const create = mutation({
         createdAt: Date.now(),
       });
     }
-    return bookingId;
+    return await savedBookingResult(ctx, bookingId);
   },
 });
 
@@ -436,6 +544,7 @@ export const reschedule = mutation({
     expectedUpdatedAt: v.number(),
     confirmScheduleOverride: v.optional(v.boolean()),
   },
+  returns: calendarBookingResult,
   handler: async (ctx, args) => {
     validateBookingInterval(args.startTime, args.endTime);
     const booking = await getAvailableBooking(ctx, args.bookingId);
@@ -455,7 +564,10 @@ export const reschedule = mutation({
       !strictAvailability.available &&
       scheduleReasons.has(strictAvailability.reason);
     if (overrideRequired && !args.confirmScheduleOverride)
-      scheduleWarning(strictAvailability.reason);
+      return {
+        status: "needs_confirmation" as const,
+        reason: confirmationReason(strictAvailability.reason),
+      };
     const bookingId = await rescheduleTenantBooking(ctx, {
       bookingId: booking._id,
       resourceId: args.resourceId,
@@ -474,7 +586,68 @@ export const reschedule = mutation({
         createdAt: Date.now(),
       });
     }
-    return bookingId;
+    return await savedBookingResult(ctx, bookingId);
+  },
+});
+
+export const position = query({
+  args: { bookingId: v.id("bookings") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      bookingId: v.id("bookings"),
+      resourceId: v.optional(v.id("resources")),
+      startTime: v.number(),
+      endTime: v.number(),
+      status: v.union(
+        v.literal("confirmed"),
+        v.literal("cancelled"),
+        v.literal("completed"),
+      ),
+      updatedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const booking = await getAvailableBooking(ctx, args.bookingId);
+    return booking
+      ? {
+          bookingId: booking._id,
+          resourceId: booking.resourceId,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          status: booking.status,
+          updatedAt: booking.updatedAt,
+        }
+      : null;
+  },
+});
+
+export const createAttempt = query({
+  args: { idempotencyKey: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      bookingId: v.id("bookings"),
+      updatedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const tenant = await requireCurrentTenant(ctx);
+    if (!/^[A-Za-z0-9_-]{16,120}$/.test(args.idempotencyKey))
+      throw new Error("Idempotency key is invalid");
+    const attempt = await ctx.db
+      .query("bookingCreateAttempts")
+      .withIndex("by_organizationId_and_key", (q) =>
+        q
+          .eq("organizationId", tenant.organization._id)
+          .eq("key", args.idempotencyKey),
+      )
+      .unique();
+    if (!attempt) return null;
+    const booking = await ctx.db.get(attempt.bookingId);
+    if (!booking || booking.organizationId !== tenant.organization._id)
+      throw new Error("Booking is unavailable");
+    return { bookingId: booking._id, updatedAt: booking.updatedAt };
   },
 });
 

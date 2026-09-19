@@ -89,7 +89,9 @@ export const create = mutation({
       : null;
     const customerId = args.customerId ?? conversation?.customerId;
     if (customerId) await owned(ctx, customerId, organization._id);
-    if (args.serviceId) await owned(ctx, args.serviceId, organization._id);
+    const service = args.serviceId
+      ? await owned(ctx, args.serviceId, organization._id)
+      : null;
     if (
       conversation?.customerId &&
       args.customerId &&
@@ -123,6 +125,9 @@ export const create = mutation({
       title,
       summary: normalizedSummary,
       customerId,
+      ...(service
+        ? { serviceName: service.name, servicePricing: service.pricing }
+        : {}),
       organizationId: organization._id,
       status: "new",
       attention: "requested",
@@ -174,7 +179,9 @@ export const update = mutation({
     const customerId = args.customerId ?? request.customerId;
     const serviceId = args.serviceId ?? request.serviceId;
     if (customerId) await owned(ctx, customerId, organization._id);
-    if (serviceId) await owned(ctx, serviceId, organization._id);
+    const service = serviceId
+      ? await owned(ctx, serviceId, organization._id)
+      : null;
     if (request.customerId && customerId !== request.customerId)
       throw new Error("An established customer cannot be replaced");
     if (request.initialConversationId && customerId) {
@@ -223,6 +230,9 @@ export const update = mutation({
       bookingId,
       customerId,
       serviceId,
+      ...(service
+        ? { serviceName: service.name, servicePricing: service.pricing }
+        : {}),
       updatedAt: Date.now(),
     });
     await audit(ctx, request._id, "updated");

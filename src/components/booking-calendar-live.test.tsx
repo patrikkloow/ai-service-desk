@@ -14,6 +14,11 @@ const mock = vi.hoisted(() => ({
   cancel: vi.fn(),
   complete: vi.fn(),
   revert: vi.fn(),
+  revertSecond: vi.fn(),
+  revertOther: vi.fn(),
+  setExtendedProp: vi.fn(),
+  query: vi.fn(),
+  dragVersion: 7,
   calendarProps: null as null | Record<string, (...args: never[]) => unknown>,
 }));
 
@@ -41,7 +46,8 @@ vi.mock("@fullcalendar/react", () => ({
                 id: "booking-1",
                 start: new Date(outsideStart),
                 end: new Date(outsideStart + 60 * 60 * 1000),
-                extendedProps: { resourceId: "resource-1", updatedAt: 7 },
+                extendedProps: { resourceId: "resource-1", updatedAt: mock.dragVersion },
+                setExtendedProp: mock.setExtendedProp,
               },
               revert: mock.revert,
             } as never)
@@ -49,6 +55,40 @@ vi.mock("@fullcalendar/react", () => ({
           type="button"
         >
           Simulera drag
+        </button>
+        <button
+          onClick={() =>
+            props.eventDrop({
+              event: {
+                id: "booking-1",
+                start: new Date(outsideStart + 2 * 60 * 60 * 1000),
+                end: new Date(outsideStart + 3 * 60 * 60 * 1000),
+                extendedProps: { resourceId: "resource-1", updatedAt: mock.dragVersion },
+                setExtendedProp: mock.setExtendedProp,
+              },
+              revert: mock.revertSecond,
+            } as never)
+          }
+          type="button"
+        >
+          Simulera andra drag
+        </button>
+        <button
+          onClick={() =>
+            props.eventDrop({
+              event: {
+                id: "booking-2",
+                start: new Date(outsideStart),
+                end: new Date(outsideStart + 60 * 60 * 1000),
+                extendedProps: { resourceId: "resource-1", updatedAt: 11 },
+                setExtendedProp: vi.fn(),
+              },
+              revert: mock.revertOther,
+            } as never)
+          }
+          type="button"
+        >
+          Simulera annan bokning
         </button>
       </div>
     );
@@ -60,6 +100,7 @@ vi.mock("@fullcalendar/react/themes/forma", () => ({ default: {} }));
 vi.mock("@fullcalendar/react/locales/sv", () => ({ default: {} }));
 
 vi.mock("convex/react", () => ({
+  useConvex: () => ({ query: mock.query }),
   useMutation: (reference: Parameters<typeof getFunctionName>[0]) => {
     const name = getFunctionName(reference);
     if (name === "calendarBookings:create") return mock.create;
@@ -91,6 +132,8 @@ vi.mock("convex/react", () => ({
             name: "Testresurs",
             status: "active",
             scheduleConfigured: true,
+            serviceRestrictionMode: "selected",
+            serviceIds: ["service-1"],
           },
         ],
         requests: [],
@@ -118,13 +161,19 @@ vi.mock("convex/react", () => ({
   },
 }));
 
-function scheduleError() {
-  return Object.assign(new Error("controlled Convex rejection"), {
-    data: {
-      code: "SCHEDULE_OVERRIDE_REQUIRED",
-      reason: "outside_business_hours",
-    },
-  });
+function needsConfirmation() {
+  return {
+    status: "needs_confirmation" as const,
+    reason: "outside_business_hours" as const,
+  };
+}
+
+function saved(updatedAt = 8) {
+  return {
+    status: "saved" as const,
+    bookingId: "booking-1",
+    updatedAt,
+  };
 }
 
 beforeEach(() => {
@@ -140,6 +189,14 @@ beforeEach(() => {
   mock.cancel.mockReset().mockResolvedValue(undefined);
   mock.complete.mockReset().mockResolvedValue(undefined);
   mock.revert.mockReset();
+  mock.revertSecond.mockReset();
+  mock.revertOther.mockReset();
+  mock.dragVersion = 7;
+  mock.setExtendedProp.mockReset().mockImplementation((name, value) => {
+    if (name === "updatedAt" && typeof value === "number")
+      mock.dragVersion = value;
+  });
+  mock.query.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -149,7 +206,7 @@ afterEach(() => {
 
 describe("staff schedule confirmation", () => {
   it("confirms a new booking with the exact rejected input", async () => {
-    mock.create.mockRejectedValueOnce(scheduleError()).mockResolvedValueOnce("new-booking");
+    mock.create.mockResolvedValueOnce(needsConfirmation()).mockResolvedValueOnce(saved());
     render(<BookingCalendarLive />);
     fireEvent.click(screen.getByRole("button", { name: "Ny bokning" }));
     fireEvent.change(screen.getByLabelText("Kund"), { target: { value: "customer-1" } });
@@ -169,7 +226,7 @@ describe("staff schedule confirmation", () => {
   });
 
   it("confirms a form reschedule with the same booking version and intended move", async () => {
-    mock.reschedule.mockRejectedValueOnce(scheduleError()).mockResolvedValueOnce(undefined);
+    mock.reschedule.mockResolvedValueOnce(needsConfirmation()).mockResolvedValueOnce(saved());
     render(<BookingCalendarLive />);
     fireEvent.click(screen.getByRole("button", { name: "Öppna testbokning" }));
     fireEvent.click(screen.getByRole("button", { name: "Boka om" }));
@@ -191,7 +248,7 @@ describe("staff schedule confirmation", () => {
   });
 
   it("reverts a dragged booking when staff cancels the override", async () => {
-    mock.reschedule.mockRejectedValueOnce(scheduleError());
+    mock.reschedule.mockResolvedValueOnce(needsConfirmation());
     render(<BookingCalendarLive />);
     fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
     expect(await screen.findByRole("button", { name: "Flytta ändå" })).toBeTruthy();
@@ -202,7 +259,7 @@ describe("staff schedule confirmation", () => {
   });
 
   it("keeps a dragged booking only after the confirmed server write", async () => {
-    mock.reschedule.mockRejectedValueOnce(scheduleError()).mockResolvedValueOnce(undefined);
+    mock.reschedule.mockResolvedValueOnce(needsConfirmation()).mockResolvedValueOnce(saved());
     render(<BookingCalendarLive />);
     fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
     expect(await screen.findByRole("button", { name: "Flytta ändå" })).toBeTruthy();
@@ -213,6 +270,89 @@ describe("staff schedule confirmation", () => {
       ...rejectedInput,
       confirmScheduleOverride: true,
     });
+    expect(mock.revert).not.toHaveBeenCalled();
+  });
+
+  it("synchronously rejects a second drag of the same booking while the first is pending", async () => {
+    let resolveFirst!: (value: ReturnType<typeof needsConfirmation>) => void;
+    mock.reschedule.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulera andra drag" }),
+    );
+    expect(mock.reschedule).toHaveBeenCalledOnce();
+    expect(mock.revertSecond).toHaveBeenCalledOnce();
+    resolveFirst(needsConfirmation());
+    expect(await screen.findByRole("button", { name: "Flytta ändå" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Avbryt" }));
+    expect(mock.revert).toHaveBeenCalledOnce();
+  });
+
+  it("requires a fresh confirmation for a second move and uses the saved server version", async () => {
+    mock.reschedule
+      .mockResolvedValueOnce(needsConfirmation())
+      .mockResolvedValueOnce(saved(8))
+      .mockResolvedValueOnce(needsConfirmation());
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Flytta ändå" }),
+    );
+    await waitFor(() => expect(mock.dragVersion).toBe(8));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulera andra drag" }),
+    );
+    expect(await screen.findByRole("button", { name: "Flytta ändå" })).toBeTruthy();
+    expect(mock.reschedule.mock.calls[2][0]).toMatchObject({
+      expectedUpdatedAt: 8,
+      startTime: outsideStart + 2 * 60 * 60 * 1000,
+    });
+  });
+
+  it("does not lock a different booking while one save is pending", async () => {
+    let resolveFirst!: (value: ReturnType<typeof saved>) => void;
+    mock.reschedule
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(saved(12));
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simulera annan bokning" }),
+    );
+    await waitFor(() => expect(mock.reschedule).toHaveBeenCalledTimes(2));
+    expect(mock.reschedule.mock.calls[1][0]).toMatchObject({
+      bookingId: "booking-2",
+      expectedUpdatedAt: 11,
+    });
+    expect(mock.revertOther).not.toHaveBeenCalled();
+    resolveFirst(saved(8));
+  });
+
+  it("reads authoritative state after an uncertain drag result without retrying", async () => {
+    mock.reschedule.mockRejectedValueOnce(new Error("network unavailable"));
+    mock.query.mockResolvedValueOnce({
+      bookingId: "booking-1",
+      resourceId: "resource-1",
+      startTime: outsideStart,
+      endTime: outsideStart + 60 * 60 * 1000,
+      status: "confirmed",
+      updatedAt: 9,
+    });
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
+    await waitFor(() =>
+      expect(mock.setExtendedProp).toHaveBeenCalledWith("updatedAt", 9),
+    );
+    expect(mock.reschedule).toHaveBeenCalledOnce();
     expect(mock.revert).not.toHaveBeenCalled();
   });
 });

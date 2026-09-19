@@ -13,6 +13,10 @@ import { requireCurrentTenant, requireCurrentTenantAdmin } from "./tenant";
 const MAX_RESOURCE_NAME = 160;
 const MAX_BLOCK_NOTE = 1_000;
 const MAX_BLOCK_RANGE_MS = 366 * 24 * 60 * 60 * 1000;
+const serviceRestrictionMode = v.union(
+  v.literal("all"),
+  v.literal("selected"),
+);
 
 function validateBlockListRange(startTime: number, endTime: number) {
   if (
@@ -91,6 +95,20 @@ export const list = query({
               .eq("status", "active"),
           )
           .collect();
+    const [tenantServices, allServiceLinks] = await Promise.all([
+      ctx.db
+        .query("services")
+        .withIndex("by_organizationId", (q) =>
+          q.eq("organizationId", tenant.organization._id),
+        )
+        .collect(),
+      ctx.db
+        .query("serviceResources")
+        .withIndex("by_organizationId_and_resourceId", (q) =>
+          q.eq("organizationId", tenant.organization._id),
+        )
+        .collect(),
+    ]);
     const result = [];
     for (const resource of resources) {
       const schedule = await ctx.db
@@ -101,18 +119,30 @@ export const list = query({
             .eq("resourceId", resource._id),
         )
         .unique();
-      const links = await ctx.db
-        .query("serviceResources")
-        .withIndex("by_organizationId_and_resourceId", (q) =>
-          q
-            .eq("organizationId", tenant.organization._id)
-            .eq("resourceId", resource._id),
-        )
-        .collect();
+      const links = allServiceLinks.filter(
+        (link) => link.resourceId === resource._id,
+      );
+      const legacyAllowedServiceIds = tenantServices
+        .filter((service) => {
+          const serviceLinks = allServiceLinks.filter(
+            (link) => link.serviceId === service._id,
+          );
+          return (
+            serviceLinks.length === 0 ||
+            serviceLinks.some((link) => link.resourceId === resource._id)
+          );
+        })
+        .map((service) => service._id);
+      const serviceIds = resource.serviceRestrictionMode
+        ? links.map((link) => link.serviceId)
+        : legacyAllowedServiceIds;
       result.push({
         ...resource,
         schedule,
-        serviceIds: links.map((link) => link.serviceId),
+        serviceIds,
+        serviceRestrictionMode:
+          resource.serviceRestrictionMode ??
+          (serviceIds.length === tenantServices.length ? "all" : "selected"),
       });
     }
     return {
@@ -133,6 +163,7 @@ export const create = mutation({
       name: requiredName(args.name),
       kind: args.kind,
       status: "active",
+      serviceRestrictionMode: "all",
       createdAt: now,
       updatedAt: now,
     });
@@ -258,6 +289,7 @@ export const setServices = mutation({
   args: {
     resourceId: v.id("resources"),
     serviceIds: v.array(v.id("services")),
+    serviceRestrictionMode: v.optional(serviceRestrictionMode),
   },
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenantAdmin(ctx);
@@ -274,6 +306,11 @@ export const setServices = mutation({
       if (!service || service.organizationId !== tenant.organization._id)
         throw new Error("Service is unavailable");
     }
+    const mode =
+      args.serviceRestrictionMode ??
+      (unique.length > 0 ? "selected" : "all");
+    if (mode === "all" && unique.length > 0)
+      throw new Error("An unrestricted resource cannot have service links");
     const existing = await ctx.db
       .query("serviceResources")
       .withIndex("by_organizationId_and_resourceId", (q) =>
@@ -291,6 +328,10 @@ export const setServices = mutation({
         createdAt: Date.now(),
       });
     }
+    await ctx.db.patch(resource._id, {
+      serviceRestrictionMode: mode,
+      updatedAt: Date.now(),
+    });
     await auditResource(ctx, tenant, resource._id, "updated");
   },
 });

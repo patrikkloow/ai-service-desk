@@ -18,6 +18,7 @@ const pricing = v.union(
     currency: v.string(),
   }),
 );
+const MAX_ATOMIC_SERVICE_RELATIONS = 500;
 
 type Pricing =
   | { kind: "not_specified" }
@@ -162,6 +163,71 @@ export const permissions = query({
   },
 });
 
+async function serviceDeletionRelations(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+  serviceId: Id<"services">,
+) {
+  const [activeBooking, requests, resourceLinks] = await Promise.all([
+    ctx.db
+      .query("bookings")
+      .withIndex("by_organizationId_and_serviceId_and_status", (q) =>
+        q
+          .eq("organizationId", organizationId)
+          .eq("serviceId", serviceId)
+          .eq("status", "confirmed"),
+      )
+      .first(),
+    ctx.db
+      .query("serviceRequests")
+      .withIndex("by_organizationId_and_serviceId", (q) =>
+        q.eq("organizationId", organizationId).eq("serviceId", serviceId),
+      )
+      .take(MAX_ATOMIC_SERVICE_RELATIONS + 1),
+    ctx.db
+      .query("serviceResources")
+      .withIndex("by_organizationId_and_serviceId", (q) =>
+        q.eq("organizationId", organizationId).eq("serviceId", serviceId),
+      )
+      .take(MAX_ATOMIC_SERVICE_RELATIONS + 1),
+  ]);
+  if (
+    requests.length > MAX_ATOMIC_SERVICE_RELATIONS ||
+    resourceLinks.length > MAX_ATOMIC_SERVICE_RELATIONS ||
+    requests.length + resourceLinks.length > MAX_ATOMIC_SERVICE_RELATIONS
+  )
+    throw new ConvexError({ code: "SERVICE_DELETE_TOO_LARGE" });
+  const requestIds = requests.map((request) => request._id).sort();
+  const resourceLinkIds = resourceLinks.map((link) => link._id).sort();
+  return {
+    activeBooking,
+    requests,
+    resourceLinks,
+    scopeToken: `requests:${requestIds.join(",")}|resources:${resourceLinkIds.join(",")}`,
+  };
+}
+
+export const deletionImpact = query({
+  args: { serviceId: v.id("services") },
+  handler: async (ctx, args) => {
+    const tenant = await requireCurrentTenantAdmin(ctx);
+    const service = await ctx.db.get(args.serviceId);
+    if (!service || service.organizationId !== tenant.organization._id)
+      throw new Error("Service is unavailable");
+    const relations = await serviceDeletionRelations(
+      ctx,
+      tenant.organization._id,
+      service._id,
+    );
+    return {
+      blockedByActiveBooking: relations.activeBooking !== null,
+      requestCount: relations.requests.length,
+      resourceLinkCount: relations.resourceLinks.length,
+      scopeToken: relations.scopeToken,
+    };
+  },
+});
+
 export const create = mutation({
   args: {
     name: v.string(),
@@ -259,12 +325,9 @@ export const setStatus = mutation({
   },
 });
 
-/**
- * Removes a catalog entry while preserving terminal booking snapshots as
- * immutable history. Requests and current operational relationships block it.
- */
+/** Permanently removes a catalog entry and preserves its business history. */
 export const remove = mutation({
-  args: { serviceId: v.id("services") },
+  args: { serviceId: v.id("services"), scopeToken: v.string() },
   handler: async (ctx, args) => {
     const tenant = await requireCurrentTenantAdmin(ctx);
     const service = await ctx.db.get(args.serviceId);
@@ -272,43 +335,41 @@ export const remove = mutation({
       throw new Error("Service is unavailable");
     }
 
-    const [activeBooking, request, resourceLink] = await Promise.all([
-      ctx.db
-        .query("bookings")
-        .withIndex("by_organizationId_and_serviceId_and_status", (q) =>
-          q
-            .eq("organizationId", tenant.organization._id)
-            .eq("serviceId", service._id)
-            .eq("status", "confirmed"),
-        )
-        .first(),
-      ctx.db
-        .query("serviceRequests")
-        .withIndex("by_organizationId_and_serviceId", (q) =>
-          q
-            .eq("organizationId", tenant.organization._id)
-            .eq("serviceId", service._id),
-        )
-        .first(),
-      ctx.db
-        .query("serviceResources")
-        .withIndex("by_organizationId_and_serviceId", (q) =>
-          q
-            .eq("organizationId", tenant.organization._id)
-            .eq("serviceId", service._id),
-        )
-        .first(),
-    ]);
-    const references = [
-      ...(activeBooking ? ["active_bookings" as const] : []),
-      ...(request ? ["service_requests" as const] : []),
-      ...(resourceLink ? ["resource_links" as const] : []),
-    ];
-    if (references.length > 0) {
-      throw new ConvexError({ code: "SERVICE_IN_USE", references });
-    }
+    const relations = await serviceDeletionRelations(
+      ctx,
+      tenant.organization._id,
+      service._id,
+    );
+    if (relations.activeBooking)
+      throw new ConvexError({
+        code: "SERVICE_IN_USE",
+        references: ["active_bookings"],
+      });
+    if (relations.scopeToken !== args.scopeToken)
+      throw new ConvexError({ code: "SERVICE_DELETE_SCOPE_CHANGED" });
 
+    for (const request of relations.requests) {
+      await ctx.db.patch(request._id, {
+        serviceId: undefined,
+        serviceName: request.serviceName ?? service.name,
+        servicePricing: request.servicePricing ?? service.pricing,
+      });
+    }
+    for (const link of relations.resourceLinks) {
+      const resource = await ctx.db.get(link.resourceId);
+      if (!resource || resource.organizationId !== tenant.organization._id)
+        throw new ConvexError({ code: "SERVICE_DELETE_SCOPE_CHANGED" });
+      await ctx.db.patch(resource._id, {
+        serviceRestrictionMode: "selected",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.delete(link._id);
+    }
     await ctx.db.delete(service._id);
-    return service._id;
+    return {
+      serviceId: service._id,
+      detachedRequestCount: relations.requests.length,
+      removedResourceLinkCount: relations.resourceLinks.length,
+    };
   },
 });
