@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { findBlockingBooking, validateBookingInterval } from "./availability";
+import { validateBookingInterval } from "./availability";
+import { findAvailableResource } from "./resourceAvailability";
 import {
   cancelTenantBooking,
   createTenantBooking,
@@ -46,7 +47,12 @@ const readToolRequest = v.union(
   v.object({ toolName: v.literal("service.list"), args: v.object({}) }),
   v.object({
     toolName: v.literal("availability.check"),
-    args: v.object({ startTime: v.number(), endTime: v.number() }),
+    args: v.object({
+      startTime: v.number(),
+      endTime: v.number(),
+      serviceId: v.optional(v.id("services")),
+      resourceId: v.optional(v.id("resources")),
+    }),
   }),
 );
 
@@ -56,6 +62,7 @@ const writeToolRequest = v.union(
     args: v.object({
       customerId: v.id("customers"),
       serviceId: v.id("services"),
+      resourceId: v.optional(v.id("resources")),
       startTime: v.number(),
       endTime: v.number(),
       notes: v.optional(v.string()),
@@ -68,6 +75,7 @@ const writeToolRequest = v.union(
       bookingId: v.id("bookings"),
       startTime: v.number(),
       endTime: v.number(),
+      resourceId: v.optional(v.id("resources")),
       conversationId: v.optional(v.id("conversations")),
     }),
   }),
@@ -122,7 +130,7 @@ function toolFailure(error: unknown) {
   ) {
     return failure("unauthorized", "A verified active workspace is required.");
   }
-  if (sourceMessage === "The requested time is unavailable") {
+  if (sourceMessage.startsWith("The requested time is unavailable")) {
     return failure("conflict", "The requested time is unavailable.");
   }
   if (
@@ -300,13 +308,22 @@ export const executeRead = query({
             args.request.args.startTime,
             args.request.args.endTime,
           );
-          const blockingBooking = await findBlockingBooking(
-            ctx,
-            tenant.organization._id,
-            args.request.args.startTime,
-            args.request.args.endTime,
+          const result = await findAvailableResource(ctx, {
+            organizationId: tenant.organization._id,
+            startTime: args.request.args.startTime,
+            endTime: args.request.args.endTime,
+            ...(args.request.args.serviceId
+              ? { serviceId: args.request.args.serviceId }
+              : {}),
+            ...(args.request.args.resourceId
+              ? { resourceId: args.request.args.resourceId }
+              : {}),
+          });
+          return success(
+            result.available
+              ? { available: true, resourceId: result.resource._id }
+              : { available: false },
           );
-          return success({ available: blockingBooking === null });
         }
       }
     } catch (error) {

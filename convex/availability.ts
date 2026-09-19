@@ -5,7 +5,7 @@ import { query } from "./_generated/server";
 import { requireCurrentTenant } from "./tenant";
 
 const MIN_BOOKING_DURATION_MS = 60_000;
-const MAX_BOOKING_DURATION_MS = 24 * 60 * 60 * 1000;
+export const MAX_BOOKING_DURATION_MS = 24 * 60 * 60 * 1000;
 const MAX_AVAILABILITY_CANDIDATES = 3_000;
 
 type BookingContext = QueryCtx | MutationCtx;

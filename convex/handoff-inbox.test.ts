@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { parseModelToolRequest } from "./orchestratorCore";
+import { TEST_OPEN_WEEK } from "./testBookingSchedule";
 
 const summary = {
   wants: "Boka en bedömning",
@@ -22,6 +23,23 @@ async function setup() {
   const colleague = t.withIdentity(identity("colleague"));
   const tenant = await a.mutation(api.tenants.ensureCurrentTenant, {});
   await b.mutation(api.tenants.ensureCurrentTenant, {});
+  for (const [org, name] of [
+    ["a", "Resource A"],
+    ["b", "Resource B"],
+  ] as const) {
+    const admin = t.withIdentity({
+      ...identity(`admin_${org}`, org),
+      o: { id: org, rol: "admin" },
+    });
+    const resourceId = await admin.mutation(api.resources.create, {
+      name,
+      kind: "person",
+    });
+    await admin.mutation(api.resources.updateSchedule, {
+      resourceId,
+      schedule: TEST_OPEN_WEEK,
+    });
+  }
   return { t, a, b, colleague, tenant };
 }
 

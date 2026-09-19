@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { findBlockingBooking, validateBookingInterval } from "./availability";
+import { validateBookingInterval } from "./availability";
+import { findAvailableResource } from "./resourceAvailability";
 import { requireCurrentTenant } from "./tenant";
 
 const bookingStatus = v.union(
@@ -17,6 +18,7 @@ export type CreateTenantBookingArgs = {
   startTime: number;
   endTime: number;
   notes?: string;
+  resourceId?: Id<"resources">;
 };
 
 function optionalNotes(value: string | undefined): string | undefined {
@@ -74,13 +76,15 @@ export async function createTenantBooking(
     args.customerId,
     args.serviceId,
   );
-  const blockingBooking = await findBlockingBooking(
-    ctx,
-    tenant.organization._id,
-    args.startTime,
-    args.endTime,
-  );
-  if (blockingBooking !== null) throw new Error("The requested time is unavailable");
+  const available = await findAvailableResource(ctx, {
+    organizationId: tenant.organization._id,
+    serviceId: service._id,
+    startTime: args.startTime,
+    endTime: args.endTime,
+    ...(args.resourceId ? { resourceId: args.resourceId } : {}),
+  });
+  if (!available.available)
+    throw new Error(`The requested time is unavailable: ${available.reason}`);
   const now = Date.now();
   const notes = optionalNotes(args.notes);
   return await ctx.db.insert("bookings", {
@@ -90,6 +94,8 @@ export async function createTenantBooking(
     customerName: customer.name,
     serviceName: service.name,
     servicePricing: service.pricing,
+    resourceId: available.resource._id,
+    resourceName: available.resource.name,
     startTime: args.startTime,
     endTime: args.endTime,
     ...(notes !== undefined ? { notes } : {}),
@@ -105,6 +111,7 @@ export async function rescheduleTenantBooking(
     bookingId: Id<"bookings">;
     startTime: number;
     endTime: number;
+    resourceId?: Id<"resources">;
   },
 ) {
   validateBookingInterval(args.startTime, args.endTime);
@@ -113,15 +120,19 @@ export async function rescheduleTenantBooking(
   if (booking.status !== "confirmed") {
     throw new Error("Only confirmed bookings can be rescheduled");
   }
-  const blockingBooking = await findBlockingBooking(
-    ctx,
-    booking.organizationId,
-    args.startTime,
-    args.endTime,
-    booking._id,
-  );
-  if (blockingBooking !== null) throw new Error("The requested time is unavailable");
+  const available = await findAvailableResource(ctx, {
+    organizationId: booking.organizationId,
+    serviceId: booking.serviceId,
+    startTime: args.startTime,
+    endTime: args.endTime,
+    resourceId: args.resourceId ?? booking.resourceId,
+    excludeBookingId: booking._id,
+  });
+  if (!available.available)
+    throw new Error(`The requested time is unavailable: ${available.reason}`);
   await ctx.db.patch("bookings", booking._id, {
+    resourceId: available.resource._id,
+    resourceName: available.resource.name,
     startTime: args.startTime,
     endTime: args.endTime,
     updatedAt: Date.now(),
@@ -182,12 +193,18 @@ export const create = mutation({
     startTime: v.number(),
     endTime: v.number(),
     notes: v.optional(v.string()),
+    resourceId: v.optional(v.id("resources")),
   },
   handler: async (ctx, args) => await createTenantBooking(ctx, args),
 });
 
 export const reschedule = mutation({
-  args: { bookingId: v.id("bookings"), startTime: v.number(), endTime: v.number() },
+  args: {
+    bookingId: v.id("bookings"),
+    startTime: v.number(),
+    endTime: v.number(),
+    resourceId: v.optional(v.id("resources")),
+  },
   handler: async (ctx, args) => await rescheduleTenantBooking(ctx, args),
 });
 
@@ -201,7 +218,11 @@ export const complete = mutation({
   handler: async (ctx, args) => {
     const booking = await getAvailableBooking(ctx, args.bookingId);
     if (booking === null) throw new Error("Booking is unavailable");
-    if (booking.status !== "confirmed") throw new Error("Only confirmed bookings can be completed");
-    await ctx.db.patch("bookings", booking._id, { status: "completed", updatedAt: Date.now() });
+    if (booking.status !== "confirmed")
+      throw new Error("Only confirmed bookings can be completed");
+    await ctx.db.patch("bookings", booking._id, {
+      status: "completed",
+      updatedAt: Date.now(),
+    });
   },
 });

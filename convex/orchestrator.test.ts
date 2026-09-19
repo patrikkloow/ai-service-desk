@@ -12,6 +12,7 @@ import {
 } from "./modelAdapter";
 import { processCustomerTurn } from "./orchestrator";
 import schema from "./schema";
+import { TEST_OPEN_WEEK } from "./testBookingSchedule";
 
 function clerkIdentity(
   userId: string,
@@ -55,6 +56,19 @@ describe("secure AI orchestrator", () => {
 
     await organizationA.mutation(api.tenants.ensureCurrentTenant, {});
     await organizationB.mutation(api.tenants.ensureCurrentTenant, {});
+    for (const [organization, name] of [
+      [organizationA, "Resource A"],
+      [organizationB, "Resource B"],
+    ] as const) {
+      const resourceId = await organization.mutation(api.resources.create, {
+        name,
+        kind: "person",
+      });
+      await organization.mutation(api.resources.updateSchedule, {
+        resourceId,
+        schedule: TEST_OPEN_WEEK,
+      });
+    }
     const permissivePolicy = {
       actions: {
         bookingCreate: "allow" as const,

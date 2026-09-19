@@ -12,6 +12,11 @@ export default function Page() {
         {[
           ["business", "Företag", "Namn, kontaktuppgifter, språk och tidszon."],
           ["hours", "Öppettider", "Veckans vanliga öppettider."],
+          [
+            "resources",
+            "Resurser",
+            "Bokningsbara personer, lokaler, utrustning och scheman.",
+          ],
           ["ai", "AI", "Åtgärdsregler, språk och ton."],
           [
             "services",

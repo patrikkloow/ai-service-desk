@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fullcalendar/react/skeleton.css";
+@import "@fullcalendar/react/themes/forma/theme.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -127,12 +129,61 @@
     @apply font-sans;
   }
 }
+
+.booking-calendar-theme {
+  --fc-forma-primary: var(--primary);
+  --fc-forma-primary-over: color-mix(in oklch, var(--primary) 86%, transparent);
+  --fc-forma-primary-down: color-mix(in oklch, var(--primary) 76%, transparent);
+  --fc-forma-primary-foreground: var(--primary-foreground);
+  --fc-forma-event: var(--foreground);
+  --fc-forma-event-contrast: var(--background);
+  --fc-forma-background-event: var(--primary);
+  --fc-forma-highlight: color-mix(in oklch, var(--primary) 14%, transparent);
+  --fc-forma-background: var(--card);
+  --fc-forma-faint: color-mix(in oklch, var(--foreground) 3%, transparent);
+  --fc-forma-muted: var(--muted);
+  --fc-forma-strong: color-mix(in oklch, var(--foreground) 10%, transparent);
+  --fc-forma-stronger: color-mix(in oklch, var(--foreground) 15%, transparent);
+  --fc-forma-strongest: color-mix(in oklch, var(--foreground) 20%, transparent);
+  --fc-forma-foreground: var(--foreground);
+  --fc-forma-faint-foreground: var(--muted-foreground);
+  --fc-forma-muted-foreground: var(--muted-foreground);
+  --fc-forma-border: var(--border);
+  --fc-forma-muted-border: var(--border);
+  --fc-forma-strong-border: var(--input);
+}
 @layer base {
-  main { overflow-wrap: anywhere; }
-  input, select, textarea { min-width: 0; max-width: 100%; font-size: 1rem; }
-  input, select, button, summary { min-height: 44px; }
-  button, summary { cursor: pointer; }
-  button:disabled { cursor: not-allowed; }
-  select { width: 100%; background-color: var(--card); }
-  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--foreground); outline-offset: 3px; }
+  main {
+    overflow-wrap: anywhere;
+  }
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    max-width: 100%;
+    font-size: 1rem;
+  }
+  input,
+  select,
+  button,
+  summary {
+    min-height: 44px;
+  }
+  button,
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  select {
+    width: 100%;
+    background-color: var(--card);
+  }
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 3px;
+  }
 }

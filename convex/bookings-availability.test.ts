@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { TEST_OPEN_WEEK } from "./testBookingSchedule";
 
 function clerkIdentity(
   userId: string,
@@ -35,6 +36,25 @@ describe("tenant-scoped bookings and availability", () => {
 
     await organizationA.mutation(api.tenants.ensureCurrentTenant, {});
     await organizationB.mutation(api.tenants.ensureCurrentTenant, {});
+    const resourceA = await organizationA.mutation(api.resources.create, {
+      name: "Resource A",
+      kind: "person",
+    });
+    await organizationA.mutation(api.resources.updateSchedule, {
+      resourceId: resourceA,
+      schedule: TEST_OPEN_WEEK,
+    });
+    const organizationBAdmin = t.withIdentity(
+      clerkIdentity("admin_b", "org_b", "admin"),
+    );
+    const resourceB = await organizationBAdmin.mutation(api.resources.create, {
+      name: "Resource B",
+      kind: "person",
+    });
+    await organizationBAdmin.mutation(api.resources.updateSchedule, {
+      resourceId: resourceB,
+      schedule: TEST_OPEN_WEEK,
+    });
 
     const customerA = await organizationA.mutation(api.customers.create, {
       name: "Customer A",
@@ -64,7 +84,10 @@ describe("tenant-scoped bookings and availability", () => {
       [ten - 30 * 60 * 1000, eleven + 30 * 60 * 1000],
     ]) {
       expect(
-        await organizationA.query(api.availability.check, { startTime, endTime }),
+        await organizationA.query(api.availability.check, {
+          startTime,
+          endTime,
+        }),
       ).toEqual({ available: false });
     }
     expect(
@@ -103,7 +126,9 @@ describe("tenant-scoped bookings and availability", () => {
       name: "Renamed service",
       pricing: { kind: "from", amountMinor: 12_000, currency: "SEK" },
     });
-    expect(await organizationA.query(api.bookings.get, { bookingId: bookingA })).toMatchObject({
+    expect(
+      await organizationA.query(api.bookings.get, { bookingId: bookingA }),
+    ).toMatchObject({
       customerName: "Customer A",
       serviceName: "Consultation",
       servicePricing: { kind: "fixed", amountMinor: 9900, currency: "SEK" },
@@ -141,7 +166,9 @@ describe("tenant-scoped bookings and availability", () => {
       startTime: fourteen,
       endTime: fifteen,
     });
-    await organizationA.mutation(api.bookings.complete, { bookingId: completedBooking });
+    await organizationA.mutation(api.bookings.complete, {
+      bookingId: completedBooking,
+    });
     expect(
       await organizationA.query(api.availability.check, {
         startTime: fourteen,

@@ -33,7 +33,10 @@ const toolShapes: Record<
     optional: { limit: integer },
   },
   "service.list": { required: {} },
-  "availability.check": { required: { startTime: integer, endTime: integer } },
+  "availability.check": {
+    required: { startTime: integer, endTime: integer },
+    optional: { serviceId: string, resourceId: string },
+  },
   "business.profile": { required: {} },
   "business.hours": { required: {} },
   "booking.create": {
@@ -43,10 +46,11 @@ const toolShapes: Record<
       startTime: integer,
       endTime: integer,
     },
-    optional: { notes: string },
+    optional: { resourceId: string, notes: string },
   },
   "booking.reschedule": {
     required: { bookingId: string, startTime: integer, endTime: integer },
+    optional: { resourceId: string },
   },
   "booking.cancel": { required: { bookingId: string } },
   "case.create": {

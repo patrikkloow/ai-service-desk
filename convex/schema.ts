@@ -12,6 +12,11 @@ import {
   responseLanguage,
   weeklyBusinessHours,
 } from "./configValidators";
+import {
+  bookingStatus,
+  resourceKind,
+  resourceStatus,
+} from "./bookingValidators";
 
 /**
  * The tenant foundation for the platform. Domain-specific records belong to
@@ -138,6 +143,58 @@ export default defineSchema({
     .index("by_organizationId", ["organizationId"])
     .index("by_organizationId_and_status", ["organizationId", "status"]),
 
+  resources: defineTable({
+    organizationId: v.id("organizations"),
+    name: v.string(),
+    kind: resourceKind,
+    status: resourceStatus,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId", ["organizationId"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+
+  resourceSchedules: defineTable({
+    organizationId: v.id("organizations"),
+    resourceId: v.id("resources"),
+    configured: v.boolean(),
+    schedule: weeklyBusinessHours,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId", ["organizationId"])
+    .index("by_organizationId_and_resourceId", [
+      "organizationId",
+      "resourceId",
+    ]),
+
+  resourceBlocks: defineTable({
+    organizationId: v.id("organizations"),
+    resourceId: v.id("resources"),
+    startTime: v.number(),
+    endTime: v.number(),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_organizationId_and_startTime", ["organizationId", "startTime"])
+    .index("by_organizationId_and_resourceId_and_startTime", [
+      "organizationId",
+      "resourceId",
+      "startTime",
+    ]),
+
+  serviceResources: defineTable({
+    organizationId: v.id("organizations"),
+    serviceId: v.id("services"),
+    resourceId: v.id("resources"),
+    createdAt: v.number(),
+  })
+    .index("by_organizationId_and_serviceId", ["organizationId", "serviceId"])
+    .index("by_organizationId_and_resourceId", [
+      "organizationId",
+      "resourceId",
+    ]),
+
   bookings: defineTable({
     // Always derived server-side from the authenticated Clerk organization.
     organizationId: v.id("organizations"),
@@ -146,6 +203,9 @@ export default defineSchema({
     // These snapshots preserve booking history when source records change.
     customerName: v.string(),
     serviceName: v.string(),
+    resourceId: v.optional(v.id("resources")),
+    resourceName: v.optional(v.string()),
+    serviceRequestId: v.optional(v.id("serviceRequests")),
     servicePricing: v.union(
       v.object({ kind: v.literal("not_specified") }),
       v.object({
@@ -162,11 +222,7 @@ export default defineSchema({
     // Absolute Unix timestamps in milliseconds. UI formatting is locale-specific.
     startTime: v.number(),
     endTime: v.number(),
-    status: v.union(
-      v.literal("confirmed"),
-      v.literal("cancelled"),
-      v.literal("completed"),
-    ),
+    status: bookingStatus,
     notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -177,6 +233,32 @@ export default defineSchema({
       "status",
       "startTime",
     ]),
+
+  bookingCreateAttempts: defineTable({
+    organizationId: v.id("organizations"),
+    key: v.string(),
+    fingerprint: v.string(),
+    bookingId: v.id("bookings"),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_key", ["organizationId", "key"]),
+
+  resourceEvents: defineTable({
+    organizationId: v.id("organizations"),
+    resourceId: v.id("resources"),
+    action: v.union(
+      v.literal("created"),
+      v.literal("updated"),
+      v.literal("schedule_updated"),
+      v.literal("block_created"),
+      v.literal("block_removed"),
+    ),
+    actor: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_resourceId_and_createdAt", [
+    "organizationId",
+    "resourceId",
+    "createdAt",
+  ]),
 
   knowledgeEntries: defineTable({
     // Always derived server-side from the authenticated Clerk organization.

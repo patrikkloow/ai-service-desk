@@ -1,6 +1,6 @@
 # Risk-first roadmap
 
-Updated: 2026-09-18 for Milestone 11, based on main `e95ac79`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
+Updated: 2026-09-19 for Booking System v1, based on main `3648568`. Status describes repository implementation, not deployment or production acceptance. Take the largest risks early: **voice latency/quality, AI reliability, booking/integration architecture, and willingness to pay**. This sequence supersedes earlier feature-first plans.
 
 ## CURRENT — completed milestones 1–11
 
@@ -18,11 +18,15 @@ Updated: 2026-09-18 for Milestone 11, based on main `e95ac79`. Status describes 
 | 10 — Live LLM + evaluation suite          | OpenAI Responses adapter; server-only fake/live configuration; terminal writes and deterministic action confirmations; evidence-backed Swedish response templates; offline evals, optional live smoke and PII-safe run metadata                | `milestone-10/live-llm-evals` — milestone checkpoint                                            |
 | 11 — Business Configuration + AI Policies | Tenant business profile and ordinary weekly hours; bounded language/tone; admin-only configuration writes; central server action policy with safe allow/confirm/human outcomes; deterministic configuration grounding and minimal audit events | `milestone-11/business-config-ai-policies` — milestone checkpoint                               |
 
-Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. M10 adds a live LLM adapter and M11 adds server-enforced tenant configuration/policies, but no production channels, full dashboard, Resources, billing or automotive layer is implied by completion.
+Milestones 1–2 group the early foundation checkpoints; milestones are not one-to-one with commits. Existing domain/tool/orchestrator tests cover tenant isolation and key behavior. M10 adds a live LLM adapter and M11 adds server-enforced tenant configuration/policies, but no production channels, full dashboard, billing or automotive layer is implied by completion.
 
 ## CURRENT — focused UX shell after M9
 
-A Swedish, mobile-first operator shell and minimal shadcn/ui foundation are implemented on top of the M9 checkpoint. Overview, Inbox, Förfrågningar, booking list, customers and settings have separate routes. M11 adds focused Business Profile, Business Hours and AI Policy pages without redesigning the shell. Request creation and details emphasize simple actions with manual controls collapsed. Authenticated development tools live only at `/dev` in development mode. The richer calendar and full onboarding remain planned.
+A Swedish, mobile-first operator shell and minimal shadcn/ui foundation are implemented on top of the M9 checkpoint. Overview, Inbox, Förfrågningar, booking calendar, customers and settings have separate routes. M11 adds focused Business Profile, Business Hours and AI Policy pages. Booking System v1 adds day/week and mobile-agenda calendar UX plus Resource settings without redesigning the shell. Request creation and details emphasize simple actions with manual controls collapsed. Authenticated development tools live only at `/dev` in development mode. Full onboarding remains planned.
+
+## CURRENT — Booking System v1 checkpoint
+
+The booking stage was brought forward before production channels to validate the shared staff/AI scheduling boundary early. The internal system now has generic resources, per-resource weekly schedules, blocked time, service restrictions, a FullCalendar Standard operator calendar, mobile agenda, durable staff-create idempotency and optional Service Request links. Staff and AI use the same resource-aware availability and write operations; M11 autonomy policy still gates AI before Tool Layer dispatch. Legacy resource-less bookings remain visible and conservatively block all resources until explicit assignment. No data migration ran.
 
 ## IN PROGRESS — 8.5 Voice Feasibility Spike
 
@@ -32,25 +36,27 @@ Before considering production reuse: measure speech-end to audible response with
 
 ## PLANNED — ordered delivery
 
-| Milestone                                          | Outcome                                                                                                                                                                             |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 12 — Channel Foundation + Channel Sessions         | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history.                                                        |
-| 13 — Webchat                                       | First production customer channel through the shared orchestrator and secure tools.                                                                                                 |
-| 14 — Booking UX + Resources + provider abstraction | Calendar-like UI, general resources and booking rules; internal/external booking providers behind stable tools. Validate integration assumptions early.                             |
-| 15 — Phone production integration                  | Production streaming/cancellation, verified voice/session boundary, hosting, telephony and simple channel setup. ElevenLabs voice with our brain; likely Twilio/SIP.                |
-| 16 — Email                                         | Thread-aware adapter and setup; draft/safe-reply behavior under common policies and handoff.                                                                                        |
-| 17 — SMS                                           | Provider-message tracking, setup and shared conversation/tool behavior.                                                                                                             |
-| 18 — Entitlements + Stripe Billing                 | Own server-enforced capability model and Stripe direct subscription mapping; keep billing identifiers out of domain logic.                                                          |
-| 19 — Automotive configuration/layer                | Workshop-specific information/workflows above the general core.                                                                                                                     |
-| Pilot                                              | Validate correct handling/bookings, escalation, staff time saved, error rate, customer acceptance and willingness to pay. Start with observe/draft and progress to safe automation. |
+| Milestone                                       | Outcome                                                                                                                                                                             |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12 — Channel Foundation + Channel Sessions      | Common channel contract, verified tenant/customer mapping and provider/session lifecycle distinct from Conversation history.                                                        |
+| 13 — Webchat                                    | First production customer channel through the shared orchestrator and secure tools.                                                                                                 |
+| 14 — Booking providers + advanced booking rules | Internal/external provider abstraction behind stable tools; holiday/buffer/notice rules and advanced resource UX only when validated.                                               |
+| 15 — Phone production integration               | Production streaming/cancellation, verified voice/session boundary, hosting, telephony and simple channel setup. ElevenLabs voice with our brain; likely Twilio/SIP.                |
+| 16 — Email                                      | Thread-aware adapter and setup; draft/safe-reply behavior under common policies and handoff.                                                                                        |
+| 17 — SMS                                        | Provider-message tracking, setup and shared conversation/tool behavior.                                                                                                             |
+| 18 — Entitlements + Stripe Billing              | Own server-enforced capability model and Stripe direct subscription mapping; keep billing identifiers out of domain logic.                                                          |
+| 19 — Automotive configuration/layer             | Workshop-specific information/workflows above the general core.                                                                                                                     |
+| Pilot                                           | Validate correct handling/bookings, escalation, staff time saved, error rate, customer acceptance and willingness to pay. Start with observe/draft and progress to safe automation. |
 
 Milestone 9 is complete for the scoped authenticated staff foundation. It deliberately does not implement live AI/channel takeover or resume: staff acknowledgment/resolution is explicit, and future escalation can request attention again. Cases remain supported and appear once through a linked request, or as standalone follow-up items. Staff create/edit requests; no new autonomous request-creation tool was required.
 
-Deferred: structured intake templates, Required Checks, Estimate/Quote models, Resources, multiple appointments/conversations per request, full pagination, broader onboarding/dashboard work, and automatic booking/request lifecycle synchronization. Inbox limits and operator semantics are documented in [architecture.md](architecture.md). Live authenticated browser acceptance and production deployment are separate from local deterministic tests/build verification.
+Deferred: structured intake templates, Required Checks, Estimate/Quote models, multiple appointments/conversations per request, external booking providers, holiday/buffer/notice rules, full pagination, broader onboarding/dashboard work, and automatic booking/request lifecycle synchronization. Inbox limits and operator semantics are documented in [architecture.md](architecture.md). Production deployment is separate from local deterministic tests/build verification.
 
 **M10 COMPLETE for the scoped implementation.** Offline evaluations and deterministic security tests are implemented; the optional real-provider smoke is unverified because no key was available. Template-based answers trade expressiveness for enforceable grounding; live language/intent quality is not established by scripted tests. See [architecture.md](architecture.md) for commands and limits.
 
 **M11 COMPLETE for the scoped implementation.** Per-tenant business identity, ordinary weekly hours and bounded AI response settings are live in authenticated settings. The server enforces allow/confirm/human policies before AI writes, uses existing escalation for human-required actions, and fails missing/malformed policy data safe. Because trusted channel/session confirmation evidence does not exist, confirmation-required actions remain blocked and cannot be unlocked by model or client claims.
+
+**Booking System v1 COMPLETE for the scoped implementation.** Authenticated staff can configure resources and book through the shared calendar. Automated tests cover resource capacity, schedules/blocks, isolation, legacy compatibility, idempotency, Service Request lifecycle preservation and bounded range behavior. Desktop and approximately 390 px mobile layouts were checked in an authenticated browser. Real simultaneous-load stress testing and production acceptance remain separate.
 
 **Next: Milestone 12 — Channel Foundation + Channel Sessions.** Establish trusted tenant/customer/session mappings and explicit confirmation evidence before exposing customer-facing writes. M11 does not add external-customer target-record authorization or a production channel.
 
@@ -61,7 +67,7 @@ General workflows remain planned; do not turn Milestone 9 into an unlimited work
 - Move local Node 23.4.0 to the project's planned Node 22 LTS target with compatibility checks.
 - Validate production hosting, especially the persistent voice WebSocket path; Vercel is intended, not a proven deployment.
 - Extend M10 PII-safe timing/outcome metadata with durable tracing, retention and optional cost accounting as needed.
-- Define durable write idempotency and customer identity verification for external channels; current within-turn retry protection is insufficient for network retries across sessions.
+- Extend operation-specific idempotency and define customer identity verification for external channels; the staff calendar has scoped create idempotency, while other writes and future channel retries need their own reconciliation contracts.
 - Keep pricing, exact plan bundles, live model tuning, external booking providers and voice acceptance thresholds open until evaluated.
 
 Each milestone should end with a reviewed diff, relevant checks and a clear Git checkpoint. Keep experiments isolated; never infer permission to merge from a completed milestone.

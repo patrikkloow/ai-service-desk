@@ -12,6 +12,7 @@ import {
   type Finalization,
 } from "./modelAdapter";
 import { UNKNOWN_RESPONSE, UNCERTAIN_RESPONSE } from "./groundedResponse";
+import { TEST_OPEN_WEEK } from "./testBookingSchedule";
 
 const tool = (toolName: string, args: unknown = {}): ModelOutput => ({
   kind: "tool_request",
@@ -40,6 +41,19 @@ async function setup() {
   const b = t.withIdentity(identity("b"));
   await a.mutation(api.tenants.ensureCurrentTenant, {});
   await b.mutation(api.tenants.ensureCurrentTenant, {});
+  for (const [organization, name] of [
+    [a, "Resurs Alfa"],
+    [b, "Resurs Beta"],
+  ] as const) {
+    const resourceId = await organization.mutation(api.resources.create, {
+      name,
+      kind: "person",
+    });
+    await organization.mutation(api.resources.updateSchedule, {
+      resourceId,
+      schedule: TEST_OPEN_WEEK,
+    });
+  }
   const permissivePolicy = {
     actions: {
       bookingCreate: "allow" as const,

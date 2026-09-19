@@ -1,6 +1,6 @@
 # Security invariants
 
-These MUST/MUST NOT rules govern new work and preservation of existing boundaries. They are not a claim that every future subsystem exists. Updated implementation: Milestone 11 based on main `e95ac79`, 2026-09-18; see [architecture.md](architecture.md) for current limits.
+These MUST/MUST NOT rules govern new work and preservation of existing boundaries. They are not a claim that every future subsystem exists. Updated implementation: Booking System v1 based on main `3648568`, 2026-09-19; see [architecture.md](architecture.md) for current limits.
 
 ## Tenant identity and authorization
 
@@ -26,7 +26,7 @@ These MUST/MUST NOT rules govern new work and preservation of existing boundarie
 
 - Writes MUST preserve required audit/provenance without dumping PII. Conversation-linked tool actions MUST retain their minimal activity references. New audit coverage MUST be designed explicitly; current activity events are not a global audit log.
 - An uncertain write result MUST NOT trigger a blind retry. Preserve duplicate resistance, booking conflict checks and escalation's reuse of an existing open case. Future external writes MUST define idempotency/reconciliation for uncertain outcomes.
-- CURRENT: a write attempt ends the turn, preventing any automatic second write or post-write provider call. Agents MUST NOT claim durable exactly-once execution, general idempotency keys or cross-turn deduplication already exist. A save failure after a write MUST warn that the action may already have happened.
+- CURRENT: an AI write attempt ends the turn, preventing any automatic second write or post-write provider call. Staff calendar creation has a tenant-scoped persistent idempotency key; this MUST NOT be generalized into an exactly-once claim for other actions or external channels. A save failure after another write MUST warn that the action may already have happened.
 - Conversation history MUST preserve append-only message semantics through current APIs. Human escalation MUST NOT automatically resolve the conversation or imply a completed human takeover.
 
 ## Secrets, privacy and experiments
@@ -67,6 +67,19 @@ For relevant code changes, test unauthorized access, multiple tenants, foreign r
 - Confirmation-required actions MUST NOT execute until a later trusted channel/session boundary supplies verified confirmation evidence. Model/client-provided confirmation fields MUST be rejected as extra authority-bearing arguments. Current M11 behavior asks for confirmation but records no trusted confirmation state.
 - `allow` policy MUST only authorize dispatch to the existing registered Tool Layer operation. Policy evaluation MUST NOT create arbitrary database/function dispatch or bypass domain ownership, validation, conflict and grounded-response checks.
 - Tenant-authored profile descriptions, contact data and opening hours MUST be treated as untrusted business data. Current provider requests MUST receive only fixed tool descriptions and bounded enum-derived style instructions; raw configuration values MUST NOT be inserted into system instructions, diagnostic logs or provider result replay.
-- Ordinary Business Hours MUST NOT be treated as verified availability. Booking claims still require `availability.check`; holiday, resource, buffer, notice and external-provider rules remain separate future controls.
+- Ordinary Business Hours MUST NOT be treated as verified availability. Booking claims still require `availability.check`, which now enforces resource schedules, service restrictions, blocks and bookings. Holiday, buffer, notice and external-provider rules remain separate future controls.
 - Configuration audit events MUST stay minimal: tenant, domain, action, verified actor identifier and timestamp. They MUST NOT copy contact fields, descriptions, schedules, policy values or other unnecessary tenant content.
 - M11 policy protects AI orchestration, not direct staff operations or future public-channel authorization. External customer actions still require target-record authorization in addition to tenant/session routing and autonomy policy.
+
+## Booking System v1 boundary
+
+- Every new booking MUST resolve to one active resource owned by the verified tenant. Resource IDs are target references only; they MUST NOT select tenant, actor or permission. Historical resource snapshots may remain visible after a resource is inactivated.
+- Resource, weekly schedule, service-restriction and blocked-time mutations MUST require verified `org:admin`. Verified tenant members may read resource configuration and create bookings through staff APIs. UI-disabled controls MUST NOT replace these backend checks.
+- Staff and AI create/reschedule paths MUST call the same resource availability domain logic. AI MUST first pass M11 action policy and strict Tool Layer validation. Neither model output nor client arguments may claim a staff actor or bypass policy.
+- Availability MUST enforce active status, service eligibility, configured resource schedule in the business timezone, blocked intervals and half-open confirmed-booking conflicts in the same Convex mutation as a write. A block overlapping a confirmed booking MUST be rejected and MUST NOT cancel the booking.
+- Confirmed legacy bookings without `resourceId` MUST remain visible and MUST conservatively block every resource during their interval until a verified staff user explicitly assigns an eligible resource. Migration or arbitrary automatic assignment MUST NOT be inferred.
+- Calendar range reads MUST derive tenant server-side, bound the requested date span and include exact overlaps that begin before the visible range. A hidden result limit MUST NOT make an occupied time appear free.
+- Staff-create idempotency keys MUST be scoped by tenant and bound to a normalized request fingerprint. Reusing a key with changed customer, service, resource, request, time or notes MUST fail. Customer creation and booking creation MUST stay in one transaction so a rejected booking does not leave a duplicate customer.
+- `businessProfiles.timezone` is authoritative for staff local-date input and resource weekly schedules. Nonexistent or ambiguous DST local times MUST be rejected rather than silently shifted or guessed.
+- Resource block notes are internal and MUST NOT be returned by AI availability tools or external customer responses. Calendar code and FullCalendar MUST remain presentation clients; they MUST NOT own authorization, capacity or conflict rules.
+- Linking a booking to a Service Request MUST verify tenant plus compatible customer/service references. Booking status changes MUST NOT automatically complete or otherwise transition the request lifecycle.

@@ -10,9 +10,11 @@
 
 import type * as aiPolicy from "../aiPolicy.js";
 import type * as availability from "../availability.js";
+import type * as bookingValidators from "../bookingValidators.js";
 import type * as bookings from "../bookings.js";
 import type * as businessHours from "../businessHours.js";
 import type * as businessProfile from "../businessProfile.js";
+import type * as calendarBookings from "../calendarBookings.js";
 import type * as cases from "../cases.js";
 import type * as configValidators from "../configValidators.js";
 import type * as configuration from "../configuration.js";
@@ -28,10 +30,13 @@ import type * as openaiModelAdapter from "../openaiModelAdapter.js";
 import type * as orchestrator from "../orchestrator.js";
 import type * as orchestratorCore from "../orchestratorCore.js";
 import type * as orchestratorInternal from "../orchestratorInternal.js";
+import type * as resourceAvailability from "../resourceAvailability.js";
+import type * as resources from "../resources.js";
 import type * as serviceRequests from "../serviceRequests.js";
 import type * as services from "../services.js";
 import type * as tenant from "../tenant.js";
 import type * as tenants from "../tenants.js";
+import type * as testBookingSchedule from "../testBookingSchedule.js";
 import type * as toolRegistry from "../toolRegistry.js";
 import type * as tools from "../tools.js";
 import type * as workValidators from "../workValidators.js";
@@ -45,9 +50,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   aiPolicy: typeof aiPolicy;
   availability: typeof availability;
+  bookingValidators: typeof bookingValidators;
   bookings: typeof bookings;
   businessHours: typeof businessHours;
   businessProfile: typeof businessProfile;
+  calendarBookings: typeof calendarBookings;
   cases: typeof cases;
   configValidators: typeof configValidators;
   configuration: typeof configuration;
@@ -63,10 +70,13 @@ declare const fullApi: ApiFromModules<{
   orchestrator: typeof orchestrator;
   orchestratorCore: typeof orchestratorCore;
   orchestratorInternal: typeof orchestratorInternal;
+  resourceAvailability: typeof resourceAvailability;
+  resources: typeof resources;
   serviceRequests: typeof serviceRequests;
   services: typeof services;
   tenant: typeof tenant;
   tenants: typeof tenants;
+  testBookingSchedule: typeof testBookingSchedule;
   toolRegistry: typeof toolRegistry;
   tools: typeof tools;
   workValidators: typeof workValidators;

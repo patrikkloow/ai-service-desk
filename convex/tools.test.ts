@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { TEST_OPEN_WEEK } from "./testBookingSchedule";
 
 function clerkIdentity(
   userId: string,
@@ -19,13 +20,17 @@ function clerkIdentity(
 }
 
 function bookingIdFrom(result: unknown): Id<"bookings"> {
-  const data = (result as { ok: boolean; data?: { bookingId?: Id<"bookings"> } }).data;
-  if (data?.bookingId === undefined) throw new Error("Expected a booking result");
+  const data = (
+    result as { ok: boolean; data?: { bookingId?: Id<"bookings"> } }
+  ).data;
+  if (data?.bookingId === undefined)
+    throw new Error("Expected a booking result");
   return data.bookingId;
 }
 
 function caseIdFrom(result: unknown): Id<"cases"> {
-  const data = (result as { ok: boolean; data?: { caseId?: Id<"cases"> } }).data;
+  const data = (result as { ok: boolean; data?: { caseId?: Id<"cases"> } })
+    .data;
   if (data?.caseId === undefined) throw new Error("Expected a case result");
   return data.caseId;
 }
@@ -46,6 +51,25 @@ describe("approved tenant-scoped tool layer", () => {
 
     await organizationA.mutation(api.tenants.ensureCurrentTenant, {});
     await organizationB.mutation(api.tenants.ensureCurrentTenant, {});
+    const resourceA = await organizationA.mutation(api.resources.create, {
+      name: "Resource A",
+      kind: "person",
+    });
+    await organizationA.mutation(api.resources.updateSchedule, {
+      resourceId: resourceA,
+      schedule: TEST_OPEN_WEEK,
+    });
+    const organizationBAdmin = t.withIdentity(
+      clerkIdentity("admin_b", "org_b", "admin"),
+    );
+    const resourceB = await organizationBAdmin.mutation(api.resources.create, {
+      name: "Resource B",
+      kind: "person",
+    });
+    await organizationBAdmin.mutation(api.resources.updateSchedule, {
+      resourceId: resourceB,
+      schedule: TEST_OPEN_WEEK,
+    });
 
     const customerA = await organizationA.mutation(api.customers.create, {
       name: "Alex Andersson",
@@ -58,11 +82,14 @@ describe("approved tenant-scoped tool layer", () => {
       durationMinutes: 60,
       pricing: { kind: "fixed", amountMinor: 9900, currency: "sek" },
     });
-    const conversationA = await organizationA.mutation(api.conversations.create, {
-      channel: "web",
-      customerId: customerA,
-      subject: "General support request",
-    });
+    const conversationA = await organizationA.mutation(
+      api.conversations.create,
+      {
+        channel: "web",
+        customerId: customerA,
+        subject: "General support request",
+      },
+    );
     await organizationA.mutation(api.knowledge.create, {
       title: "Opening hours",
       content: "tooluniqueknowledge is available Monday through Friday.",
@@ -75,17 +102,23 @@ describe("approved tenant-scoped tool layer", () => {
     const serviceB = await organizationB.mutation(api.services.create, {
       name: "Service B",
     });
-    const conversationB = await organizationB.mutation(api.conversations.create, {
-      channel: "email",
-      customerId: customerB,
-      subject: "Organization B request",
-    });
+    const conversationB = await organizationB.mutation(
+      api.conversations.create,
+      {
+        channel: "email",
+        customerId: customerB,
+        subject: "Organization B request",
+      },
+    );
     await organizationB.mutation(api.knowledge.create, {
       title: "Organization B knowledge",
       content: "organizationbuniqueknowledge only.",
     });
 
-    const definitions = await organizationA.query(api.tools.listDefinitions, {});
+    const definitions = await organizationA.query(
+      api.tools.listDefinitions,
+      {},
+    );
     expect(definitions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "knowledge.search", kind: "read" }),
@@ -150,7 +183,7 @@ describe("approved tenant-scoped tool layer", () => {
           args: { startTime: ten, endTime: eleven },
         },
       }),
-    ).toEqual({ ok: true, data: { available: true } });
+    ).toEqual({ ok: true, data: { available: true, resourceId: resourceA } });
 
     const bookingResult = await organizationA.mutation(api.tools.executeWrite, {
       request: {
@@ -190,36 +223,48 @@ describe("approved tenant-scoped tool layer", () => {
           args: { startTime: ten, endTime: eleven },
         },
       }),
-    ).toEqual({ ok: true, data: { available: true } });
+    ).toEqual({ ok: true, data: { available: true, resourceId: resourceB } });
 
-    const conflictResult = await organizationA.mutation(api.tools.executeWrite, {
-      request: {
-        toolName: "booking.create",
-        args: {
-          customerId: customerA,
-          serviceId: serviceA,
-          startTime: ten,
-          endTime: eleven,
+    const conflictResult = await organizationA.mutation(
+      api.tools.executeWrite,
+      {
+        request: {
+          toolName: "booking.create",
+          args: {
+            customerId: customerA,
+            serviceId: serviceA,
+            startTime: ten,
+            endTime: eleven,
+          },
         },
       },
-    });
+    );
     expect(conflictResult).toEqual({
       ok: false,
-      error: { code: "conflict", message: "The requested time is unavailable." },
-    });
-
-    const rescheduleResult = await organizationA.mutation(api.tools.executeWrite, {
-      request: {
-        toolName: "booking.reschedule",
-        args: {
-          bookingId: bookingA,
-          startTime: twelve,
-          endTime: thirteen,
-          conversationId: conversationA,
-        },
+      error: {
+        code: "conflict",
+        message: "The requested time is unavailable.",
       },
     });
-    expect(rescheduleResult).toMatchObject({ ok: true, data: { bookingId: bookingA } });
+
+    const rescheduleResult = await organizationA.mutation(
+      api.tools.executeWrite,
+      {
+        request: {
+          toolName: "booking.reschedule",
+          args: {
+            bookingId: bookingA,
+            startTime: twelve,
+            endTime: thirteen,
+            conversationId: conversationA,
+          },
+        },
+      },
+    );
+    expect(rescheduleResult).toMatchObject({
+      ok: true,
+      data: { bookingId: bookingA },
+    });
     const cancelResult = await organizationA.mutation(api.tools.executeWrite, {
       request: {
         toolName: "booking.cancel",
@@ -237,7 +282,7 @@ describe("approved tenant-scoped tool layer", () => {
           args: { startTime: twelve, endTime: thirteen },
         },
       }),
-    ).toEqual({ ok: true, data: { available: true } });
+    ).toEqual({ ok: true, data: { available: true, resourceId: resourceA } });
 
     const caseResult = await organizationA.mutation(api.tools.executeWrite, {
       request: {
@@ -257,17 +302,29 @@ describe("approved tenant-scoped tool layer", () => {
     const escalation = await organizationA.mutation(api.tools.executeWrite, {
       request: {
         toolName: "human.escalate",
-        args: { conversationId: conversationA, reason: "A person should follow up." },
+        args: {
+          conversationId: conversationA,
+          reason: "A person should follow up.",
+        },
       },
     });
-    expect(escalation).toMatchObject({ ok: true, data: { created: true, status: "open" } });
+    expect(escalation).toMatchObject({
+      ok: true,
+      data: { created: true, status: "open" },
+    });
     const escalationCase = caseIdFrom(escalation);
-    const retryEscalation = await organizationA.mutation(api.tools.executeWrite, {
-      request: {
-        toolName: "human.escalate",
-        args: { conversationId: conversationA, reason: "A person should follow up." },
+    const retryEscalation = await organizationA.mutation(
+      api.tools.executeWrite,
+      {
+        request: {
+          toolName: "human.escalate",
+          args: {
+            conversationId: conversationA,
+            reason: "A person should follow up.",
+          },
+        },
       },
-    });
+    );
     expect(retryEscalation).toEqual({
       ok: true,
       data: { caseId: escalationCase, status: "open", created: false },
@@ -345,7 +402,7 @@ describe("approved tenant-scoped tool layer", () => {
           args: { startTime: ten, endTime: eleven },
         },
       }),
-    ).toEqual({ ok: true, data: { available: true } });
+    ).toEqual({ ok: true, data: { available: true, resourceId: resourceB } });
 
     for (const request of [
       {
@@ -377,7 +434,10 @@ describe("approved tenant-scoped tool layer", () => {
       },
       {
         toolName: "human.escalate" as const,
-        args: { conversationId: conversationA, reason: "Cross-tenant escalation" },
+        args: {
+          conversationId: conversationA,
+          reason: "Cross-tenant escalation",
+        },
       },
       {
         toolName: "booking.create" as const,
@@ -390,7 +450,9 @@ describe("approved tenant-scoped tool layer", () => {
         },
       },
     ]) {
-      const result = await organizationB.mutation(api.tools.executeWrite, { request });
+      const result = await organizationB.mutation(api.tools.executeWrite, {
+        request,
+      });
       expect(result).toEqual({
         ok: false,
         error: {
@@ -405,17 +467,20 @@ describe("approved tenant-scoped tool layer", () => {
       }),
     ).toEqual([]);
 
-    const invalidInterval = await organizationA.mutation(api.tools.executeWrite, {
-      request: {
-        toolName: "booking.create",
-        args: {
-          customerId: customerA,
-          serviceId: serviceA,
-          startTime: ten,
-          endTime: ten,
+    const invalidInterval = await organizationA.mutation(
+      api.tools.executeWrite,
+      {
+        request: {
+          toolName: "booking.create",
+          args: {
+            customerId: customerA,
+            serviceId: serviceA,
+            startTime: ten,
+            endTime: ten,
+          },
         },
       },
-    });
+    );
     expect(invalidInterval).toEqual({
       ok: false,
       error: {

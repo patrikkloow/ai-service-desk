@@ -1,2 +1,15 @@
-import { BookingConsole } from "@/components/booking-console";
-export default function Page() { return <div className="space-y-6"><header><h1 className="text-3xl font-semibold tracking-tight">Kalender</h1><p className="mt-2 text-muted-foreground">Dina befintliga bokningar i en enkel lista. Dag- och veckovy kommer senare.</p></header><BookingConsole /></div>; }
+import { BookingCalendarLive } from "@/components/booking-calendar-live";
+
+export default function Page() {
+  return (
+    <div className="min-w-0 space-y-6">
+      <header>
+        <h1 className="text-3xl font-semibold tracking-tight">Kalender</h1>
+        <p className="mt-2 text-muted-foreground">
+          Gemensam planering för personalens och AI:ns bokningar.
+        </p>
+      </header>
+      <BookingCalendarLive />
+    </div>
+  );
+}

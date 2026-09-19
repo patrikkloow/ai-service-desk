@@ -26,8 +26,8 @@ export const APPROVED_TOOL_DEFINITIONS = [
     name: "availability.check",
     kind: "read",
     description: "Check whether a time interval is bookable.",
-    input: "startTime, endTime",
-    output: "availability status",
+    input: "startTime, endTime, optional serviceId and resourceId",
+    output: "availability status and server-selected resource reference",
   },
   {
     name: "business.profile",
@@ -50,7 +50,7 @@ export const APPROVED_TOOL_DEFINITIONS = [
     kind: "write",
     description: "Create a confirmed booking through the booking domain rules.",
     input:
-      "customerId, serviceId, startTime, endTime, optional notes; active conversation context is attached by the server",
+      "customerId, serviceId, startTime, endTime, optional resourceId and notes; active conversation context is attached by the server",
     output: "booking reference and status",
   },
   {
@@ -59,7 +59,7 @@ export const APPROVED_TOOL_DEFINITIONS = [
     description:
       "Reschedule a confirmed booking through the booking domain rules.",
     input:
-      "bookingId, startTime, endTime; active conversation context is attached by the server",
+      "bookingId, startTime, endTime, optional resourceId; active conversation context is attached by the server",
     output: "booking reference and status",
   },
   {

@@ -11,6 +11,7 @@ import {
   type ModelGenerationInput,
 } from "./modelAdapter";
 import schema from "./schema";
+import { TEST_OPEN_WEEK } from "./testBookingSchedule";
 
 function identity(user: string, org: string, role: "admin" | "member") {
   return {
@@ -27,6 +28,19 @@ async function setup() {
   const adminB = t.withIdentity(identity("admin_b", "org_b", "admin"));
   await adminA.mutation(api.tenants.ensureCurrentTenant, {});
   await adminB.mutation(api.tenants.ensureCurrentTenant, {});
+  for (const [admin, name] of [
+    [adminA, "Resource A"],
+    [adminB, "Resource B"],
+  ] as const) {
+    const resourceId = await admin.mutation(api.resources.create, {
+      name,
+      kind: "person",
+    });
+    await admin.mutation(api.resources.updateSchedule, {
+      resourceId,
+      schedule: TEST_OPEN_WEEK,
+    });
+  }
   return { t, adminA, memberA, adminB };
 }
 

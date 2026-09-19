@@ -33,7 +33,12 @@ export type ModelToolRequest =
   | { toolName: "service.list"; args: Record<string, never> }
   | {
       toolName: "availability.check";
-      args: { startTime: number; endTime: number };
+      args: {
+        startTime: number;
+        endTime: number;
+        serviceId?: string;
+        resourceId?: string;
+      };
     }
   | { toolName: "business.profile"; args: Record<string, never> }
   | { toolName: "business.hours"; args: Record<string, never> }
@@ -42,6 +47,7 @@ export type ModelToolRequest =
       args: {
         customerId: string;
         serviceId: string;
+        resourceId?: string;
         startTime: number;
         endTime: number;
         notes?: string;
@@ -49,7 +55,12 @@ export type ModelToolRequest =
     }
   | {
       toolName: "booking.reschedule";
-      args: { bookingId: string; startTime: number; endTime: number };
+      args: {
+        bookingId: string;
+        startTime: number;
+        endTime: number;
+        resourceId?: string;
+      };
     }
   | { toolName: "booking.cancel"; args: { bookingId: string } }
   | {
@@ -268,15 +279,30 @@ export function parseModelToolRequest(value: unknown): ParsedToolRequest {
       break;
     case "availability.check":
       if (
-        hasOnlyKeys(args, ["startTime", "endTime"]) &&
+        hasOnlyKeys(
+          args,
+          ["startTime", "endTime"],
+          ["serviceId", "resourceId"],
+        ) &&
         validSafeInteger(args.startTime) &&
-        validSafeInteger(args.endTime)
+        validSafeInteger(args.endTime) &&
+        (args.serviceId === undefined || validId(args.serviceId)) &&
+        (args.resourceId === undefined || validId(args.resourceId))
       ) {
         return {
           ok: true,
           request: {
             toolName: "availability.check",
-            args: { startTime: args.startTime, endTime: args.endTime },
+            args: {
+              startTime: args.startTime,
+              endTime: args.endTime,
+              ...(args.serviceId === undefined
+                ? {}
+                : { serviceId: args.serviceId }),
+              ...(args.resourceId === undefined
+                ? {}
+                : { resourceId: args.resourceId }),
+            },
           },
         };
       }
@@ -295,10 +321,11 @@ export function parseModelToolRequest(value: unknown): ParsedToolRequest {
         hasOnlyKeys(
           args,
           ["customerId", "serviceId", "startTime", "endTime"],
-          ["notes"],
+          ["notes", "resourceId"],
         ) &&
         validId(args.customerId) &&
         validId(args.serviceId) &&
+        (args.resourceId === undefined || validId(args.resourceId)) &&
         validSafeInteger(args.startTime) &&
         validSafeInteger(args.endTime) &&
         validOptionalText(args.notes, 10_000)
@@ -310,6 +337,9 @@ export function parseModelToolRequest(value: unknown): ParsedToolRequest {
             args: {
               customerId: args.customerId,
               serviceId: args.serviceId,
+              ...(args.resourceId === undefined
+                ? {}
+                : { resourceId: args.resourceId }),
               startTime: args.startTime,
               endTime: args.endTime,
               ...(args.notes === undefined ? {} : { notes: args.notes }),
@@ -320,8 +350,13 @@ export function parseModelToolRequest(value: unknown): ParsedToolRequest {
       break;
     case "booking.reschedule":
       if (
-        hasOnlyKeys(args, ["bookingId", "startTime", "endTime"]) &&
+        hasOnlyKeys(
+          args,
+          ["bookingId", "startTime", "endTime"],
+          ["resourceId"],
+        ) &&
         validId(args.bookingId) &&
+        (args.resourceId === undefined || validId(args.resourceId)) &&
         validSafeInteger(args.startTime) &&
         validSafeInteger(args.endTime)
       ) {
@@ -331,6 +366,9 @@ export function parseModelToolRequest(value: unknown): ParsedToolRequest {
             toolName: "booking.reschedule",
             args: {
               bookingId: args.bookingId,
+              ...(args.resourceId === undefined
+                ? {}
+                : { resourceId: args.resourceId }),
               startTime: args.startTime,
               endTime: args.endTime,
             },

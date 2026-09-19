@@ -13,7 +13,7 @@ export default defineConfig({
       AI_LIVE_SMOKE: "",
     },
     exclude: ["convex/live-smoke.test.ts"],
-    include: ["convex/**/*.test.ts", "src/**/*.test.tsx"],
+    include: ["convex/**/*.test.ts", "src/**/*.test.{ts,tsx}"],
     deps: {
       optimizer: {
         ssr: {
