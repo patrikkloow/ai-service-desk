@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -20,10 +20,22 @@ const scheduleConfirmationReason = v.union(
   v.literal("outside_business_hours"),
   v.literal("outside_schedule"),
 );
+const calendarRejectionReason = v.union(
+  v.literal("booking_conflict"),
+  v.literal("blocked"),
+  v.literal("booking_changed"),
+  v.literal("resource_unavailable"),
+  v.literal("schedule_missing"),
+  v.literal("service_not_supported"),
+);
 const calendarBookingResult = v.union(
   v.object({
     status: v.literal("needs_confirmation"),
     reason: scheduleConfirmationReason,
+  }),
+  v.object({
+    status: v.literal("rejected"),
+    reason: calendarRejectionReason,
   }),
   v.object({
     status: v.literal("saved"),
@@ -401,6 +413,23 @@ const scheduleReasons = new Set([
   "outside_schedule",
 ]);
 
+type CalendarRejectionReason =
+  | "booking_conflict"
+  | "blocked"
+  | "booking_changed"
+  | "resource_unavailable"
+  | "schedule_missing"
+  | "service_not_supported";
+
+function rejectionReason(reason: string): CalendarRejectionReason {
+  if (reason === "booking_conflict") return reason;
+  if (reason === "blocked") return reason;
+  if (reason === "resource_unavailable") return reason;
+  if (reason === "schedule_missing") return reason;
+  if (reason === "service_not_supported") return reason;
+  throw new Error("Calendar rejection reason is invalid");
+}
+
 function confirmationReason(
   reason: string,
 ): "business_hours_missing" | "outside_business_hours" | "outside_schedule" {
@@ -492,6 +521,26 @@ export const create = mutation({
         status: "needs_confirmation" as const,
         reason: confirmationReason(strictAvailability.reason),
       };
+    if (!strictAvailability.available && !overrideRequired)
+      return {
+        status: "rejected" as const,
+        reason: rejectionReason(strictAvailability.reason),
+      };
+    if (overrideRequired) {
+      const overriddenAvailability = await findAvailableResource(ctx, {
+        organizationId: tenant.organization._id,
+        serviceId: args.serviceId,
+        resourceId: args.resourceId,
+        startTime: args.startTime,
+        endTime: args.endTime,
+        allowScheduleOverride: true,
+      });
+      if (!overriddenAvailability.available)
+        return {
+          status: "rejected" as const,
+          reason: rejectionReason(overriddenAvailability.reason),
+        };
+    }
     const customerId =
       customer.kind === "existing"
         ? customer.customerId
@@ -551,7 +600,7 @@ export const reschedule = mutation({
     if (!booking || booking.status !== "confirmed")
       throw new Error("Booking is unavailable");
     if (booking.updatedAt !== args.expectedUpdatedAt)
-      throw new ConvexError({ code: "BOOKING_CHANGED" });
+      return { status: "rejected" as const, reason: "booking_changed" as const };
     const strictAvailability = await findAvailableResource(ctx, {
       organizationId: booking.organizationId,
       serviceId: booking.serviceId,
@@ -568,6 +617,27 @@ export const reschedule = mutation({
         status: "needs_confirmation" as const,
         reason: confirmationReason(strictAvailability.reason),
       };
+    if (!strictAvailability.available && !overrideRequired)
+      return {
+        status: "rejected" as const,
+        reason: rejectionReason(strictAvailability.reason),
+      };
+    if (overrideRequired) {
+      const overriddenAvailability = await findAvailableResource(ctx, {
+        organizationId: booking.organizationId,
+        serviceId: booking.serviceId,
+        resourceId: args.resourceId,
+        startTime: args.startTime,
+        endTime: args.endTime,
+        excludeBookingId: booking._id,
+        allowScheduleOverride: true,
+      });
+      if (!overriddenAvailability.available)
+        return {
+          status: "rejected" as const,
+          reason: rejectionReason(overriddenAvailability.reason),
+        };
+    }
     const bookingId = await rescheduleTenantBooking(ctx, {
       bookingId: booking._id,
       resourceId: args.resourceId,

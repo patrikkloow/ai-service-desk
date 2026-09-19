@@ -87,7 +87,7 @@ function savedBookingId(result: {
   status: "saved";
   bookingId: Id<"bookings">;
   updatedAt: number;
-} | { status: "needs_confirmation" }) {
+} | { status: "needs_confirmation" } | { status: "rejected" }) {
   if (result.status !== "saved") throw new Error("Expected a saved booking");
   return result.bookingId;
 }
@@ -266,6 +266,113 @@ describe("booking system v1", () => {
     ).rejects.toThrow("booking_conflict");
   });
 
+  test("calendar conflicts, blocks and stale versions are normal no-write results", async () => {
+    const { t, admin, customer, service, resourceA, resourceB } = await setup();
+    await admin.mutation(api.bookings.create, {
+      customerId: customer,
+      serviceId: service,
+      resourceId: resourceA,
+      startTime: mondayTen,
+      endTime: mondayTen + hour,
+    });
+    const movingId = await admin.mutation(api.bookings.create, {
+      customerId: customer,
+      serviceId: service,
+      resourceId: resourceA,
+      startTime: mondayTen + 2 * hour,
+      endTime: mondayTen + 3 * hour,
+    });
+    const original = await admin.query(api.bookings.get, {
+      bookingId: movingId,
+    });
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, {
+        bookingId: movingId,
+        resourceId: resourceA,
+        startTime: mondayTen + 30 * 60_000,
+        endTime: mondayTen + 90 * 60_000,
+        expectedUpdatedAt: original!.updatedAt,
+      }),
+    ).resolves.toEqual({ status: "rejected", reason: "booking_conflict" });
+    expect(await admin.query(api.bookings.get, { bookingId: movingId })).toEqual(
+      original,
+    );
+
+    const movedToOtherResource = await admin.mutation(
+      api.calendarBookings.reschedule,
+      {
+        bookingId: movingId,
+        resourceId: resourceB,
+        startTime: mondayTen,
+        endTime: mondayTen + hour,
+        expectedUpdatedAt: original!.updatedAt,
+      },
+    );
+    expect(movedToOtherResource.status).toBe("saved");
+    const onResourceB = await admin.query(api.bookings.get, {
+      bookingId: movingId,
+    });
+    await admin.mutation(api.resources.createBlock, {
+      resourceId: resourceB,
+      startTime: mondayTen + 2 * hour,
+      endTime: mondayTen + 3 * hour,
+      note: "Syntetiskt block",
+    });
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, {
+        bookingId: movingId,
+        resourceId: resourceB,
+        startTime: mondayTen + 2 * hour,
+        endTime: mondayTen + 3 * hour,
+        expectedUpdatedAt: onResourceB!.updatedAt,
+      }),
+    ).resolves.toEqual({ status: "rejected", reason: "blocked" });
+    expect(await admin.query(api.bookings.get, { bookingId: movingId })).toEqual(
+      onResourceB,
+    );
+
+    const outsideStart = mondayTen - 2 * hour;
+    const outsideBlocker = savedBookingId(
+      await admin.mutation(api.calendarBookings.create, {
+        idempotencyKey: "outside-conflict-blocker-01",
+        customer: { kind: "existing", customerId: customer },
+        serviceId: service,
+        resourceId: resourceA,
+        startTime: outsideStart,
+        endTime: outsideStart + hour,
+        confirmScheduleOverride: true,
+      }),
+    );
+    expect(outsideBlocker).toBeTruthy();
+    const outsideMove = {
+      bookingId: movingId,
+      resourceId: resourceA,
+      startTime: outsideStart,
+      endTime: outsideStart + hour,
+      expectedUpdatedAt: onResourceB!.updatedAt,
+    };
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, outsideMove),
+    ).resolves.toEqual({
+      status: "needs_confirmation",
+      reason: "outside_business_hours",
+    });
+    await expect(
+      admin.mutation(api.calendarBookings.reschedule, {
+        ...outsideMove,
+        confirmScheduleOverride: true,
+      }),
+    ).resolves.toEqual({ status: "rejected", reason: "booking_conflict" });
+    expect(await admin.query(api.bookings.get, { bookingId: movingId })).toEqual(
+      onResourceB,
+    );
+    expect(
+      (await t.run((ctx) => ctx.db.query("bookingEvents").collect())).filter(
+        (event) => event.bookingId === movingId,
+      ),
+    ).toEqual([]);
+  });
+
   test("legacy bookings block all resources until staff assigns one explicitly", async () => {
     const { t, admin, customer, service, resourceA, resourceB } = await setup();
     const organizationId = (
@@ -379,6 +486,12 @@ describe("booking system v1", () => {
       bookingId: savedBookingId(first),
       status: "new",
     });
+    const beforeRejectedCreate = await t.run(async (ctx) => ({
+      customers: await ctx.db.query("customers").collect(),
+      bookings: await ctx.db.query("bookings").collect(),
+      attempts: await ctx.db.query("bookingCreateAttempts").collect(),
+      events: await ctx.db.query("bookingEvents").collect(),
+    }));
     await expect(
       admin.mutation(api.calendarBookings.create, {
         idempotencyKey: "conflicting-customer-01",
@@ -388,7 +501,18 @@ describe("booking system v1", () => {
         startTime: mondayTen,
         endTime: mondayTen + hour,
       }),
-    ).rejects.toThrow("booking_conflict");
+    ).resolves.toEqual({
+      status: "rejected",
+      reason: "booking_conflict",
+    });
+    expect(
+      await t.run(async (ctx) => ({
+        customers: await ctx.db.query("customers").collect(),
+        bookings: await ctx.db.query("bookings").collect(),
+        attempts: await ctx.db.query("bookingCreateAttempts").collect(),
+        events: await ctx.db.query("bookingEvents").collect(),
+      })),
+    ).toEqual(beforeRejectedCreate);
     expect(
       await t.run(async (ctx) =>
         (
@@ -538,7 +662,7 @@ describe("booking system v1", () => {
         endTime: mondayTen + 2 * hour,
         expectedUpdatedAt: moved!.updatedAt,
       }),
-    ).rejects.toThrow("BOOKING_CHANGED");
+    ).resolves.toEqual({ status: "rejected", reason: "booking_changed" });
   });
 
   test("a confirmed schedule override still rejects a stale booking version", async () => {
@@ -573,7 +697,7 @@ describe("booking system v1", () => {
         ...intendedMove,
         confirmScheduleOverride: true,
       }),
-    ).rejects.toThrow("BOOKING_CHANGED");
+    ).resolves.toEqual({ status: "rejected", reason: "booking_changed" });
     expect(await admin.query(api.bookings.get, { bookingId })).toMatchObject({
       startTime: mondayTen,
       endTime: mondayTen + hour,

@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   attemptCalendarDrop,
+  bookingRejectionText,
   scheduleConfirmationText,
 } from "./calendar-drop";
 
@@ -33,6 +34,22 @@ describe("desktop drag rescheduling", () => {
     });
     expect(result).toEqual({ kind: "rejected", reason: failure });
     expect(revert).toHaveBeenCalledOnce();
+  });
+
+  test("reverts a typed booking conflict without an exception", async () => {
+    const revert = vi.fn();
+    const result = await attemptCalendarDrop({
+      save: async () => ({
+        status: "rejected",
+        reason: "booking_conflict",
+      }),
+      revert,
+    });
+    expect(result).toEqual({ kind: "rejected", reason: "booking_conflict" });
+    expect(revert).toHaveBeenCalledOnce();
+    expect(bookingRejectionText("booking_conflict")).toBe(
+      "Tiden är redan bokad för den valda resursen. Välj en annan tid eller resurs.",
+    );
   });
 
   test("treats typed schedule confirmation as a normal result", async () => {

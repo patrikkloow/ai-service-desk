@@ -36,6 +36,7 @@ import {
   localDateTimeToEpoch,
 } from "@/lib/booking-time";
 import {
+  bookingRejectionText,
   type CalendarBookingResult,
   hasConvexErrorCode,
   scheduleConfirmationText,
@@ -99,6 +100,9 @@ type PendingOverride = {
   expectedUpdatedAt?: number;
   confirm: () => Promise<CalendarBookingResult>;
   onSaved: (result: Extract<CalendarBookingResult, { status: "saved" }>) => void;
+  onRejected: (
+    reason: Extract<CalendarBookingResult, { status: "rejected" }>["reason"],
+  ) => void;
   recover?: () => Promise<
     | { status: "saved"; result: Extract<CalendarBookingResult, { status: "saved" }> }
     | { status: "not_saved" }
@@ -458,7 +462,10 @@ export function BookingCalendarLive({
             createBooking({ ...input, confirmScheduleOverride: true }),
           recover: () => recoverCreate(input.idempotencyKey),
           onSaved: () => setCreateOpen(false),
+          onRejected: (reason) => setError(bookingRejectionText(reason)),
         });
+      } else if (result.status === "rejected") {
+        setError(bookingRejectionText(result.reason));
       } else {
         setCreateOpen(false);
       }
@@ -514,7 +521,10 @@ export function BookingCalendarLive({
             rescheduleBooking({ ...input, confirmScheduleOverride: true }),
           recover: () => recoverReschedule(input),
           onSaved: () => setRescheduling(false),
+          onRejected: (reason) => setError(bookingRejectionText(reason)),
         });
+      } else if (result.status === "rejected") {
+        setError(bookingRejectionText(result.reason));
       } else {
         setRescheduling(false);
         setError(null);
@@ -543,7 +553,12 @@ export function BookingCalendarLive({
       const result = await operation.confirm();
       if (pendingOverrideRef.current?.operationId !== operation.operationId)
         return;
-      if (result.status !== "saved") {
+      if (result.status === "rejected") {
+        operation.onRejected(result.reason);
+        clearPendingOverride(operation.operationId);
+        return;
+      }
+      if (result.status === "needs_confirmation") {
         setError("Tiden behöver bedömas på nytt. Försök igen.");
         return;
       }
@@ -645,6 +660,13 @@ export function BookingCalendarLive({
             info.event.setExtendedProp?.("updatedAt", saved.updatedAt);
             dragOperationsRef.current.delete(bookingId);
           },
+          onRejected: (reason) => {
+            if (dragOperationsRef.current.get(bookingId) !== operationId)
+              return;
+            info.revert();
+            dragOperationsRef.current.delete(bookingId);
+            setError(bookingRejectionText(reason));
+          },
           onUncertain: () => info.revert(),
           cancel: () => {
             if (dragOperationsRef.current.get(bookingId) !== operationId)
@@ -659,6 +681,10 @@ export function BookingCalendarLive({
             "Slutför den pågående schemabekräftelsen innan nästa flytt.",
           );
         }
+      } else if (result.status === "rejected") {
+        info.revert();
+        dragOperationsRef.current.delete(bookingId);
+        setError(bookingRejectionText(result.reason));
       } else {
         info.event.setExtendedProp?.("updatedAt", result.updatedAt);
         dragOperationsRef.current.delete(bookingId);

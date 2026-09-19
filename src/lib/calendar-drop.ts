@@ -3,10 +3,22 @@ export type ScheduleConfirmationReason =
   | "outside_business_hours"
   | "outside_schedule";
 
+export type CalendarRejectionReason =
+  | "booking_conflict"
+  | "blocked"
+  | "booking_changed"
+  | "resource_unavailable"
+  | "schedule_missing"
+  | "service_not_supported";
+
 export type CalendarBookingResult =
   | {
       status: "needs_confirmation";
       reason: ScheduleConfirmationReason;
+    }
+  | {
+      status: "rejected";
+      reason: CalendarRejectionReason;
     }
   | {
       status: "saved";
@@ -42,6 +54,20 @@ export function scheduleConfirmationText(
     : `Den nya tiden ligger utanför ${schedule}. Vill du flytta ändå?`;
 }
 
+export function bookingRejectionText(reason: CalendarRejectionReason) {
+  if (reason === "booking_conflict")
+    return "Tiden är redan bokad för den valda resursen. Välj en annan tid eller resurs.";
+  if (reason === "blocked")
+    return "Tiden är blockerad för den valda resursen. Välj en annan tid eller resurs.";
+  if (reason === "booking_changed")
+    return "Bokningen har ändrats av någon annan. Kalendern har synkroniserats.";
+  if (reason === "schedule_missing")
+    return "Resursen behöver ett konfigurerat schema.";
+  if (reason === "resource_unavailable")
+    return "Resursen är inte tillgänglig för bokningen.";
+  return "Resursen kan inte bokas för den valda tjänsten.";
+}
+
 export async function attemptCalendarDrop({
   save,
   revert,
@@ -51,9 +77,13 @@ export async function attemptCalendarDrop({
 }) {
   try {
     const result = await save();
-    return result.status === "needs_confirmation"
-      ? { kind: "confirmation_required" as const, reason: result.reason }
-      : { kind: "saved" as const, result };
+    if (result.status === "needs_confirmation")
+      return { kind: "confirmation_required" as const, reason: result.reason };
+    if (result.status === "rejected") {
+      revert();
+      return { kind: "rejected" as const, reason: result.reason };
+    }
+    return { kind: "saved" as const, result };
   } catch (reason) {
     revert();
     return { kind: "rejected" as const, reason };

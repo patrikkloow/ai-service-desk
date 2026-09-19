@@ -176,6 +176,18 @@ function saved(updatedAt = 8) {
   };
 }
 
+function rejected(
+  reason:
+    | "booking_conflict"
+    | "blocked"
+    | "booking_changed"
+    | "resource_unavailable"
+    | "schedule_missing"
+    | "service_not_supported",
+) {
+  return { status: "rejected" as const, reason };
+}
+
 beforeEach(() => {
   vi.stubGlobal("matchMedia", vi.fn(() => ({
     matches: true,
@@ -205,6 +217,90 @@ afterEach(() => {
 });
 
 describe("staff schedule confirmation", () => {
+  it("keeps create form input and shows the normal conflict message", async () => {
+    mock.create.mockResolvedValueOnce(rejected("booking_conflict"));
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Ny bokning" }));
+    fireEvent.change(screen.getByLabelText("Kund"), {
+      target: { value: "customer-1" },
+    });
+    fireEvent.change(screen.getByLabelText("Tjänst"), {
+      target: { value: "service-1" },
+    });
+    fireEvent.change(screen.getByLabelText(/Starttid i/), {
+      target: { value: "2033-05-16T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Resurs"), {
+      target: { value: "resource-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Spara bokning" }));
+    expect(
+      await screen.findByText(
+        "Tiden är redan bokad för den valda resursen. Välj en annan tid eller resurs.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByLabelText(/Starttid i/)).toHaveProperty(
+      "value",
+      "2033-05-16T10:00",
+    );
+    expect(mock.create).toHaveBeenCalledOnce();
+  });
+
+  it("keeps form rescheduling open after a normal conflict result", async () => {
+    mock.reschedule.mockResolvedValueOnce(rejected("booking_conflict"));
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Öppna testbokning" }));
+    fireEvent.click(screen.getByRole("button", { name: "Boka om" }));
+    fireEvent.change(screen.getByLabelText("Ny starttid"), {
+      target: { value: "2033-05-16T10:30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Spara ombokning" }));
+    expect(
+      await screen.findByText(
+        "Tiden är redan bokad för den valda resursen. Välj en annan tid eller resurs.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Ny starttid")).toHaveProperty(
+      "value",
+      "2033-05-16T10:30",
+    );
+    expect(
+      screen.getByRole("button", { name: "Spara ombokning" }),
+    ).toBeTruthy();
+  });
+
+  it("reverts a typed drag conflict without retrying the mutation", async () => {
+    mock.reschedule.mockResolvedValueOnce(rejected("booking_conflict"));
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
+    expect(
+      await screen.findByText(
+        "Tiden är redan bokad för den valda resursen. Välj en annan tid eller resurs.",
+      ),
+    ).toBeTruthy();
+    expect(mock.revert).toHaveBeenCalledOnce();
+    expect(mock.reschedule).toHaveBeenCalledOnce();
+    expect(mock.query).not.toHaveBeenCalled();
+  });
+
+  it("reverts a conflict discovered after schedule confirmation", async () => {
+    mock.reschedule
+      .mockResolvedValueOnce(needsConfirmation())
+      .mockResolvedValueOnce(rejected("booking_conflict"));
+    render(<BookingCalendarLive />);
+    fireEvent.click(screen.getByRole("button", { name: "Simulera drag" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Flytta ändå" }),
+    );
+    expect(
+      await screen.findByText(
+        "Tiden är redan bokad för den valda resursen. Välj en annan tid eller resurs.",
+      ),
+    ).toBeTruthy();
+    expect(mock.revert).toHaveBeenCalledOnce();
+    expect(mock.reschedule).toHaveBeenCalledTimes(2);
+  });
+
   it("confirms a new booking with the exact rejected input", async () => {
     mock.create.mockResolvedValueOnce(needsConfirmation()).mockResolvedValueOnce(saved());
     render(<BookingCalendarLive />);
